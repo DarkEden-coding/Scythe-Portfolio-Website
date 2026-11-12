@@ -1,0 +1,8 @@
+node_modules
+dist
+.DS_Store
+*.log
+
+# Baked cube files (about 120 MB). `npm run bake` packs them from the masters kept on the GPU
+# host, which takes a few minutes; see scripts/bake.mjs.
+public/cubes/

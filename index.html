@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Elliot Scully · Scythe Engineering</title>
+  <meta name="description" content="Elliot Scully (Scythe), engineer and founder of Scythe Engineering." />
+  <meta name="theme-color" content="#1c1c1f" />
+  <meta property="og:title" content="Elliot Scully · Scythe Engineering" />
+  <meta property="og:description" content="Millions of triple pendulums, one voxel each." />
+  <meta property="og:image" content="/poster.jpg" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+</head>
+<body>
+  <a class="skip" href="#work">Skip to content</a>
+
+  <header class="nav wrap">
+    <div class="card nav__card">
+      <a class="nav__brand" href="#top" aria-label="Scythe Engineering, back to top">
+        <img src="/brand/mark-red.png" alt="" width="26" height="26" />
+        <img class="nav__word" src="/brand/wordmark-white.png" alt="Scythe Engineering" width="104" height="20" />
+      </a>
+      <nav aria-label="Sections">
+        <a href="#work">Work</a>
+        <a href="#contact">Contact</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="top">
+      <canvas class="hero__canvas" aria-label="A cube of voxels. Each voxel is a triple pendulum, drawn when its motion is chaotic enough. Drag to rotate, shift-drag to move the volume, click for the next one."></canvas>
+      <img class="hero__poster" src="/poster.jpg" alt="" hidden />
+
+      <div class="wrap hero__inner">
+        <div class="card id-card" data-enter>
+          <h1>Elliot Scully</h1>
+          <!-- TODO: your discipline -->
+          <p class="id-card__sub">Engineer at Scythe Engineering</p>
+          <dl class="id-card__facts mono">
+            <div><dt>Handle</dt><dd>@scythe</dd></div>
+            <!-- TODO: where you're based -->
+            <div><dt>Based in</dt><dd>City, Country</dd></div>
+          </dl>
+        </div>
+
+        <aside class="card sim-card" aria-label="Simulation controls" data-enter>
+          <div class="sim-card__head">
+            <div class="mono">
+              <p class="sim-card__label">Chaos cube</p>
+              <p class="sim-card__readout"><b id="sim-count">4,096,000</b> pendulums<br /><span id="sim-status">loading</span></p>
+            </div>
+            <div class="sim-card__actions">
+              <button class="icon-btn" id="sim-regrow" type="button" aria-label="Grow a new cube">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3a5 5 0 1 1-4.6 3H1.8A6.5 6.5 0 1 0 3.6 3.4L2 2v4h4L4.6 4.6A5 5 0 0 1 8 3z" /></svg>
+              </button>
+              <button class="icon-btn" id="sim-pause" type="button" aria-label="Pause simulation" aria-pressed="false">
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path class="i-pause" d="M5 3h2v10H5zM9 3h2v10H9z" /><path class="i-play" d="M5 3l8 5-8 5z" /></svg>
+              </button>
+            </div>
+          </div>
+
+          <label class="threshold">
+            <span class="visually-hidden">Chaos threshold, e-folds per second</span>
+            <input id="threshold" type="range" min="0" max="5" step="0.01" value="5" />
+          </label>
+
+          <div class="drag">
+            <fieldset class="seg seg--2" id="drag">
+              <legend>Drag to</legend>
+              <label><input type="radio" name="drag" value="rotate" /><span>Rotate</span></label>
+              <label><input type="radio" name="drag" value="move" /><span>Move volume</span></label>
+            </fieldset>
+            <button class="icon-btn" id="sim-recenter" type="button" aria-label="Recenter the volume">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.25 1h1.5v2.6a4.5 4.5 0 0 1 3.65 3.65H15v1.5h-2.6a4.5 4.5 0 0 1-3.65 3.65V15h-1.5v-2.6A4.5 4.5 0 0 1 3.6 8.75H1v-1.5h2.6A4.5 4.5 0 0 1 7.25 3.6zM8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6zm0 2a1 1 0 1 1 0 2 1 1 0 0 1 0-2z" /></svg>
+            </button>
+          </div>
+
+          <fieldset class="seg" id="quality">
+            <legend>Quality</legend>
+            <label><input type="radio" name="quality" value="low" /><span>Low<small>64³</small></span></label>
+            <label><input type="radio" name="quality" value="medium" /><span>Med<small>112³</small></span></label>
+            <label><input type="radio" name="quality" value="high" /><span>High<small>160³</small></span></label>
+            <label><input type="radio" name="quality" value="ultra" /><span>Ultra<small>320³</small></span></label>
+          </fieldset>
+
+          <fieldset class="seg seg--3" id="color-by">
+            <legend>Colour by</legend>
+            <label><input type="radio" name="color-by" value="plain" /><span>Plain</span></label>
+            <label><input type="radio" name="color-by" value="neighbours" /><span>Neighbours</span></label>
+            <label><input type="radio" name="color-by" value="chaos" /><span>Chaos</span></label>
+          </fieldset>
+
+          <fieldset class="seg seg--3 seg--swatches" id="palette">
+            <legend>Palette</legend>
+            <label><input type="radio" name="palette" value="ember" /><span><i class="swatch swatch--ember"></i>Ember</span></label>
+            <label><input type="radio" name="palette" value="glacier" /><span><i class="swatch swatch--glacier"></i>Glacier</span></label>
+            <label><input type="radio" name="palette" value="aurora" /><span><i class="swatch swatch--aurora"></i>Aurora</span></label>
+          </fieldset>
+
+          <fieldset class="seg seg--2" id="lighting">
+            <legend>Lighting</legend>
+            <label><input type="radio" name="lighting" value="studio" /><span>Studio</span></label>
+            <label><input type="radio" name="lighting" value="sun" /><span>Sun</span></label>
+          </fieldset>
+
+          <div class="filter">
+            <label class="switch">
+              <input type="checkbox" id="filter-on" role="switch" />
+              <span class="switch__track" aria-hidden="true"></span>
+              <span>Denoise</span>
+            </label>
+            <label class="filter__k">
+              <span class="visually-hidden">Neighbours needed</span>
+              <input id="filter-k" type="range" min="1" max="20" step="1" value="8" disabled />
+              <output class="mono" id="filter-k-out">8/26</output>
+            </label>
+          </div>
+        </aside>
+      </div>
+
+      <p class="hint mono" id="sim-hint" aria-hidden="true">drag to rotate · shift-drag to move · click for next</p>
+    </section>
+
+    <section class="section" id="work">
+      <div class="wrap">
+        <h2>Work</h2>
+        <!-- TODO: replace projects two and three with real work -->
+        <ol class="work">
+          <li><a class="card work-card" href="#top">
+            <span class="work-card__index mono">01</span>
+            <span class="work-card__title">Chaos Cube</span>
+            <span class="work-card__desc">Millions of triple pendulums on the GPU, one voxel each.</span>
+            <span class="work-card__meta mono">WebGL · 2026</span>
+          </a></li>
+          <li><a class="card work-card" href="#work">
+            <span class="work-card__index mono">02</span>
+            <span class="work-card__title">Project two</span>
+            <span class="work-card__desc">One line on what it is.</span>
+            <span class="work-card__meta mono">Field · Year</span>
+          </a></li>
+          <li><a class="card work-card" href="#work">
+            <span class="work-card__index mono">03</span>
+            <span class="work-card__title">Project three</span>
+            <span class="work-card__desc">One line on what it is.</span>
+            <span class="work-card__meta mono">Field · Year</span>
+          </a></li>
+        </ol>
+      </div>
+    </section>
+  </main>
+
+  <footer class="closing" id="contact">
+    <div class="wrap">
+      <div class="card contact-card">
+        <h2>Contact</h2>
+        <!-- TODO: real address -->
+        <a class="contact-card__email" href="mailto:hello@scytheengineering.example">hello@scytheengineering.example</a>
+        <div class="contact-card__row">
+          <img src="/brand/mark-white.png" alt="" width="36" height="36" />
+          <!-- TODO: real profile URLs -->
+          <nav class="contact-card__links" aria-label="Profiles">
+            <a href="#contact">GitHub</a>
+            <a href="#contact">LinkedIn</a>
+          </nav>
+        </div>
+      </div>
+      <p class="legal mono">© 2026 Scythe Engineering</p>
+    </div>
+  </footer>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

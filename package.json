@@ -1,0 +1,22 @@
+{
+  "name": "scythe-portfolio",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "bake": "node scripts/bake.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9",
+    "vite": "^8.3.8",
+    "vitest": "^4.1.12"
+  },
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0"
+  }
+}
