@@ -512,7 +512,7 @@ function placeStage(): void {
   stage.flat = !view || stacked.matches;
   stage.place(camera.basis(), camera.distance, {
     centreX: w / 2 + (shift[0] * h) / 2, centreY: h / 2 - (shift[1] * h) / 2, perspective: (focal * h) / 2, width: w, height: h,
-  });
+  }, camera.turning);
 }
 
 function statusText(): string {

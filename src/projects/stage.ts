@@ -4,6 +4,7 @@
 // each other by depth. With flat set (narrow screens, no WebGL) a rig is an ordinary card.
 
 import { type CameraBasis, orbitBasis, type V3 } from '../cube/orbitCamera.ts';
+import { el, externalLink } from '../ui/dom.ts';
 import type { ProjectContent } from './content.ts';
 import type { Station } from './stations.ts';
 
@@ -41,6 +42,10 @@ export class ProjectStage {
       root.append(el);
       return { el, facing: orbitBasis(station.yaw, station.pitch, station.distance), distance: station.distance };
     });
+    // A press anywhere but on a screenshot puts a brought-forward one back.
+    document.addEventListener('pointerdown', e => {
+      if (this.active !== null && !(e.target instanceof Element && e.target.closest('.shot'))) zoomShot(this.rigs[this.active].el, null);
+    });
   }
 
   /** Shows one project's panels (null: none). The last one stays placed while it fades out. */
@@ -51,6 +56,8 @@ export class ProjectStage {
       old.classList.remove('is-active');
       old.inert = true;
       zoomShot(old, null);
+      // The next time this rig opens, its screenshots fly in with the panels again.
+      for (const shot of old.querySelectorAll('.is-returning')) shot.classList.remove('is-returning');
     }
     this.leaving = this.active;
     this.active = index;
@@ -61,10 +68,16 @@ export class ProjectStage {
     }
   }
 
-  /** Places the rigs on screen for this frame's camera. */
-  place(camera: CameraBasis, distance: number, lens: StageLens): void {
+  /** Places the rigs on screen for this frame's camera. While `turning`, the panels dim and hatch;
+   * from behind the open rig's plane, its cards show their backs. */
+  place(camera: CameraBasis, distance: number, lens: StageLens, turning: boolean): void {
     const { style } = this.root;
     this.root.classList.toggle('stage--flat', this.flat);
+    this.root.classList.toggle('is-turning', turning && !this.flat);
+    // The station's camera looks along its forward, so a camera on the far side of the cube's
+    // centre from it, along that line, sees the rig's back.
+    const behind = !this.flat && this.active !== null && dot(camera.eye, this.rigs[this.active].facing.forward) > 0;
+    this.root.classList.toggle('is-behind', behind);
     if (this.flat) {
       style.cssText = '';
       for (const rig of this.rigs) rig.el.style.transform = '';
@@ -97,25 +110,21 @@ function rigMatrix(rig: Rig, camera: CameraBasis, distance: number, perspective:
   return `matrix3d(${columns.flat().map(v => v.toFixed(5)).join(',')})`;
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  node.className = className;
-  if (text !== undefined) node.textContent = text;
-  return node;
+/** What a card shows from behind. Spans, so it can sit inside the screenshot buttons. */
+function cardBack(): HTMLElement {
+  const back = el('span', 'card-back');
+  back.setAttribute('aria-hidden', 'true');
+  back.innerHTML = '<svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" /><circle class="card-back__eye" cx="11" cy="13" r="1.6" /><circle class="card-back__eye" cx="21" cy="13" r="1.6" /><path d="M10.5 23c1.4-2.4 3.3-3.5 5.5-3.5s4.1 1.1 5.5 3.5" /></svg>';
+  back.append(el('span', 'card-back__text', 'Stop looking hereeee :('));
+  return back;
 }
 
-function link(href: string, text: string): HTMLAnchorElement {
-  const a = el('a', 'panel__link', text);
-  a.href = href;
-  a.target = '_blank';
-  a.rel = 'noopener';
-  return a;
-}
-
-/** Brings one of a rig's screenshots forward, out of the bore (null: all back in place). */
+/** Brings one of a rig's screenshots forward, out of the bore, and puts any other back (null: all back). */
 function zoomShot(rig: HTMLElement, shot: HTMLElement | null): void {
   for (const other of rig.querySelectorAll<HTMLElement>('.shot')) {
     const zoomed = other === shot;
+    // Going back is quick, not the slow, delayed fly-in the screenshot entered with.
+    if (!zoomed && other.classList.contains('is-zoomed')) other.classList.add('is-returning');
     other.classList.toggle('is-zoomed', zoomed);
     other.setAttribute('aria-pressed', String(zoomed));
   }
@@ -134,8 +143,8 @@ function buildRig(project: ProjectContent, onClose: () => void): HTMLElement {
   close.addEventListener('click', onClose);
   const meta = [project.year, project.stars ? `${project.stars} GitHub stars` : ''].filter(Boolean).join(' · ');
   const links = el('p', 'panel__links');
-  links.append(link(project.repo, 'GitHub'));
-  if (project.live) links.append(link(project.live, 'Live site'));
+  links.append(externalLink(project.repo, 'GitHub', 'panel__link'));
+  if (project.live) links.append(externalLink(project.live, 'Live site', 'panel__link'));
   about.append(
     close,
     el('p', 'panel__meta mono', meta),
@@ -143,6 +152,7 @@ function buildRig(project: ProjectContent, onClose: () => void): HTMLElement {
     el('p', 'panel__tagline', project.tagline),
     el('p', 'panel__summary', project.summary),
     links,
+    cardBack(),
   );
 
   const shots = el('div', 'rig__shots');
@@ -153,7 +163,7 @@ function buildRig(project: ProjectContent, onClose: () => void): HTMLElement {
     shot.setAttribute('aria-pressed', 'false');
     const img = el('img', '');
     Object.assign(img, { src: image.src, alt: image.alt, width: image.width, height: image.height, loading: 'lazy', draggable: false });
-    shot.append(img);
+    shot.append(img, cardBack());
     shot.addEventListener('click', () => zoomShot(rig, shot.classList.contains('is-zoomed') ? null : shot));
     shots.append(shot);
   }
@@ -163,7 +173,7 @@ function buildRig(project: ProjectContent, onClose: () => void): HTMLElement {
   for (const item of project.highlights) highlights.append(el('li', '', item));
   const stack = el('ul', 'panel__stack mono');
   for (const item of project.stack) stack.append(el('li', '', item));
-  facts.append(highlights, stack);
+  facts.append(highlights, stack, cardBack());
 
   rig.append(about, shots, facts);
   return rig;

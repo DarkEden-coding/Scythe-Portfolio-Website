@@ -28,12 +28,14 @@ export class OrbitCamera {
   autoRotate: number;
   private readonly opts: OrbitOptions;
   private velocity = 0;
+  private spin = 0; // current idle rotation, radians per second; works up to autoRotate
   private lastInput = -Infinity;
   private pointers = new Map<number, { x: number; y: number }>();
   private pinchStart = 0;
   private pinchDistance = 0;
   private lean = { x: 0, y: 0, tx: 0, ty: 0 };
   private pressMoved = 0;
+  private pressTurned = false;
   onTap: (() => void) | null = null;
   /** Called with pointer movement in CSS pixels for pan drags. */
   onPan: ((dx: number, dy: number) => void) | null = null;
@@ -58,14 +60,21 @@ export class OrbitCamera {
       }
       this.velocity = 0;
       this.pressMoved = 0;
+      this.pressTurned = false;
       this.lastInput = performance.now();
     });
+    // The lean follows the mouse anywhere over the canvas, including over the project panels and
+    // screenshots laid on top of it, which take its pointer events.
+    document.addEventListener('pointermove', e => {
+      if (e.pointerType !== 'mouse') return;
+      const r = el.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+      const over = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+      this.lean.tx = over ? x * 2 - 1 : 0;
+      this.lean.ty = over ? y * 2 - 1 : 0;
+    });
+    document.documentElement.addEventListener('pointerleave', () => { this.lean.tx = 0; this.lean.ty = 0; });
     el.addEventListener('pointermove', e => {
-      if (e.pointerType === 'mouse') {
-        const r = el.getBoundingClientRect();
-        this.lean.tx = ((e.clientX - r.left) / r.width) * 2 - 1;
-        this.lean.ty = ((e.clientY - r.top) / r.height) * 2 - 1;
-      }
       const prev = this.pointers.get(e.pointerId);
       if (!prev) return;
       const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
@@ -80,6 +89,7 @@ export class OrbitCamera {
         this.yaw -= dx * 0.006;
         this.velocity = -dx * 0.006;
         this.pitch = clamp(this.pitch + dy * 0.006, -1.35, 1.35);
+        this.pressTurned = true;
       }
       this.lastInput = performance.now();
     });
@@ -89,7 +99,6 @@ export class OrbitCamera {
       if (wasSingle && this.pressMoved < 6) this.onTap?.();
     });
     el.addEventListener('pointercancel', e => this.pointers.delete(e.pointerId));
-    el.addEventListener('pointerleave', () => { this.lean.tx = 0; this.lean.ty = 0; });
     el.addEventListener('wheel', e => {
       if (!e.ctrlKey) return; // trackpad pinch arrives as ctrl+wheel
       e.preventDefault();
@@ -102,6 +111,11 @@ export class OrbitCamera {
     return this.pointers.size > 0;
   }
 
+  /** A drag is turning the camera, or it is still spinning from one. Auto-rotate doesn't count. */
+  get turning(): boolean {
+    return (this.dragging && this.pressTurned) || Math.abs(this.velocity) > 0.0005;
+  }
+
   update(dt: number): void {
     const k = 1 - Math.pow(0.02, dt); // ease toward the cursor over about a second
     this.lean.x += (this.lean.tx - this.lean.x) * k;
@@ -109,17 +123,20 @@ export class OrbitCamera {
     if (this.dragging) return;
     this.yaw += this.velocity;
     this.velocity *= Math.pow(0.04, dt); // inertia fades in about a second
+    // Idle, the spin builds up to autoRotate over about two seconds instead of starting at full speed.
     const idle = performance.now() - this.lastInput > 1500;
-    if (idle) this.yaw += this.autoRotate * dt;
+    this.spin = idle ? Math.min(this.autoRotate, this.spin + (this.autoRotate / 2) * dt) : 0;
+    this.yaw += this.spin * dt;
   }
 
   basis(): CameraBasis {
     return orbitBasis(this.yaw - this.lean.x * 0.18, clamp(this.pitch + this.lean.y * 0.12, -1.35, 1.35), this.distance);
   }
 
-  /** Drops any spin left over from the last drag. */
+  /** Drops any spin left over from the last drag, and the idle spin, which builds up again. */
   stop(): void {
     this.velocity = 0;
+    this.spin = 0;
   }
 
   private zoomTo(d: number): void {

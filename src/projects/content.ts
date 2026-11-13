@@ -5,24 +5,125 @@ export interface ProjectContent {
   name: string;        // display name, short (max ~22 chars)
   tab: string;         // very short tab label, max 12 chars, e.g. 'Spaghetti'
   tagline: string;     // one line, max 70 chars, says what it is
-  summary: string;     // 2 sentences max, ~200-260 chars, what it does and the hard part
+  summary: string;     // 2 sentences max, ~200-250 chars: first what it is for, in plain words, then how it works
   highlights: string[]; // exactly 3 items, each max 60 chars: concrete technical facts (numbers, techniques, models)
   stack: string[];     // 3-5 tech names, e.g. ['Rust', 'PPO', 'Lua']
   year: string;        // e.g. '2026' or '2025–26'
-  repo: string;        // https://github.com/DarkEden-coding/...
+  repo: string;        // https://github.com/<owner>/<repo>
   live?: string;       // only if a deployed site really exists and responds
   stars?: number;      // only if > 0
-  images: { src: string; alt: string; width: number; height: number }[]; // 0-2 images, src like '/projects/<id>-1.webp'
+  images: { src: string; alt: string; width: number; height: number }[]; // 0-3 images, src like '/projects/<id>-1.webp'
+  thumbFocus?: string; // where the list's 16:9 crop of the first image centres (CSS object-position); default its top
 }
 
 export const PROJECTS: ProjectContent[] = [
+  {
+    id: 'eagleeye',
+    name: 'EagleEye',
+    tab: 'EagleEye',
+    tagline: 'FRC robot vision: multi-camera AprilTag localization on a Pi',
+    summary:
+      'Tells an FRC robot where it is on the field by spotting AprilTags in its camera feeds. Teams build the camera pipelines as node graphs in a browser, and a Rust preprocessor predicts where tags will be so the detector only scans there.',
+    highlights: [
+      'Rust AprilTag detector, PnP refiner and outlier filter',
+      'Object detection on CPU, CUDA or MemryX MX3 accelerators',
+      'Benchmarked on 21,600 Blender frames of the 2026 field',
+    ],
+    stack: ['Python', 'Rust', 'OpenCV', 'Three.js', 'NetworkTables'],
+    year: '2024–26',
+    repo: 'https://github.com/Scythe-Engineering/EagleEye-Vision-System',
+    stars: 5,
+    images: [
+      {
+        src: '/projects/eagleeye-1.webp',
+        alt: 'EagleEye 3D View tab showing the 2026 FRC field with the robot model at its reported pose',
+        width: 1280,
+        height: 800,
+      },
+      {
+        src: '/projects/eagleeye-2.webp',
+        alt: 'Pipeline editor running at 147 FPS, with per-node timings and the dashed camera pose feedback edge',
+        width: 730,
+        height: 340,
+      },
+      {
+        src: '/projects/eagleeye-3.webp',
+        alt: 'Pipeline Builder flow graph from Device Input through AprilTag detection and PnP to NetworkTables, with per-node timings',
+        width: 1280,
+        height: 710,
+      },
+    ],
+  },
+  {
+    id: 'aerie',
+    name: 'Aerie',
+    tab: 'Aerie',
+    tagline: 'Fab tracker for FRC robot parts, from CAD review to finished part',
+    summary:
+      'Tracks every part an FRC team builds, from CAD review through CNC or hand fabrication to done, so the shop always knows what to make next and who has it. Uploaded STEP files become 3D previews, rendered once in the browser and cached.',
+    highlights: [
+      'STEP files converted to GLB on upload with cascadio',
+      'Three.js renders 8 views per part once, then caches them',
+      'Pulls drawing PDFs from Onshape through its API',
+    ],
+    stack: ['Python', 'Flask', 'SQLAlchemy', 'Three.js', 'Vite'],
+    year: '2025–26',
+    repo: 'https://github.com/frc3322/Aerie-Part-Management',
+    live: 'https://aeriedemo.scytheengineering.com/',
+    stars: 1,
+    images: [
+      {
+        src: '/projects/aerie-1.webp',
+        alt: 'CNC tab with part cards for a gusset, an arm bracket and an intake plate, each with a rendered 3D view of its model',
+        width: 1280,
+        height: 550,
+      },
+      {
+        src: '/projects/aerie-2.webp',
+        alt: 'System statistics: completed and in-progress counts, average completion time and parts by workflow stage',
+        width: 640,
+        height: 673,
+      },
+    ],
+  },
+  {
+    id: 'mutual',
+    name: 'Mutual',
+    tab: 'Mutual',
+    tagline: 'Group scheduling poll, a free When2Meet alternative with no sign-up',
+    summary:
+      'A free When2Meet alternative: everyone paints when they’re free, and a live heatmap ranks the best meeting times as answers come in. No sign-up, and every time is stored in the event’s timezone and shown in each viewer’s own.',
+    highlights: [
+      'Hono API on SQLite, live updates over Server-Sent Events',
+      '12 themes, each with light and dark variants',
+      'Rate limits per participant and per IP, IPv6 per /64',
+    ],
+    stack: ['TypeScript', 'React 19', 'Hono', 'SQLite', 'Docker'],
+    year: '2026',
+    repo: 'https://github.com/DarkEden-coding/Mutual',
+    live: 'https://mutualmeet.app/',
+    images: [
+      {
+        src: '/projects/mutual-1.webp',
+        alt: 'Event page in dark mode: availability grid next to the group heatmap, with the ranked best times above',
+        width: 1280,
+        height: 900,
+      },
+      {
+        src: '/projects/mutual-2.webp',
+        alt: 'Group heatmap in the dark Terminal theme, hovering a slot to list who is available',
+        width: 1280,
+        height: 800,
+      },
+    ],
+  },
   {
     id: 'spaghetti-detection',
     name: 'Scythe Spaghetti',
     tab: 'Spaghetti',
     tagline: 'Self-hosted 3D printer failure detector for Klipper and Moonraker',
     summary:
-      'Grabs a camera frame every 30 seconds during a print, checks it with a local YOLOv8 model or a vision decision model, and pauses the printer through Moonraker when it sees a failure. It installs next to Klipper on a Raspberry Pi with a setup wizard.',
+      'Stops a 3D print the moment it fails, before it wastes hours of filament. It runs next to Klipper on a Raspberry Pi, checks a camera frame every 30 seconds with a local YOLOv8 model, and pauses the printer through Moonraker.',
     highlights: [
       'Local YOLOv8 on ONNX Runtime, about 7 s per frame on a Pi 4',
       'Decision model flags 7 failure types, including layer shift',
@@ -53,7 +154,7 @@ export const PROJECTS: ProjectContent[] = [
     tab: 'Cones',
     tagline: 'Cone detection, pose and mapping for a driverless SAE race car',
     summary:
-      'Finds cones and 8 keypoints per cone with a YOLO pose model, solves PnP for each cone position, and runs a cone-only SLAM over iPhone video to build a 3D cone map and camera path. Accuracy is measured on Blender renders with exact cone poses.',
+      'Perception for a driverless SAE race car: it finds the track’s cones, works out where each one is, and maps them as the car drives. A YOLO pose model finds 8 keypoints per cone, PnP solves its position, and Blender renders check the accuracy.',
     highlights: [
       'Pose mAP50-95 0.920, median keypoint error 1.14 px',
       'PnP median error 1.4 to 1.7% of range on synthetic renders',
@@ -62,6 +163,7 @@ export const PROJECTS: ProjectContent[] = [
     stack: ['Python', 'Ultralytics YOLO', 'Swift', 'Three.js', 'Blender'],
     year: '2026',
     repo: 'https://github.com/DarkEden-coding/SAE-Cone-Stuff',
+    thumbFocus: 'center 27%',
     images: [
       {
         src: '/projects/cone-perception-1.webp',
@@ -78,60 +180,12 @@ export const PROJECTS: ProjectContent[] = [
     ],
   },
   {
-    id: 'factorio-self-drive',
-    name: 'Factorio Self-Drive',
-    tab: 'Factorio',
-    tagline: 'RL agents that drive the Factorio car and tank to a target',
-    summary:
-      'A Rust simulator of Factorio vehicle physics, calibrated against driving traces recorded in the real game, trains PPO policies on exported Nauvis maps. A small student distilled from the full policy then drives in pure Lua inside a Factorio mod.',
-    highlights: [
-      'Student net: 135 inputs, 13,312 multiply-adds per decision',
-      '9 discrete actions, one decision every 4 game ticks',
-      '0.987 SPL on standard holdout maps vs 0.929 for A*',
-    ],
-    stack: ['Rust', 'PyTorch', 'PPO', 'WebAssembly', 'Lua'],
-    year: '2026',
-    repo: 'https://github.com/DarkEden-coding/Factorio-Self-Drive',
-    images: [],
-  },
-  {
-    id: 'mutual',
-    name: 'Mutual',
-    tab: 'Mutual',
-    tagline: 'Group scheduling poll, a free When2Meet alternative with no sign-up',
-    summary:
-      'Everyone paints the times they are free, or free if needed, and a live heatmap ranks the best meeting times as responses arrive. Slots are stored in the event timezone and converted to each viewer’s timezone in the browser.',
-    highlights: [
-      'Hono API on SQLite, live updates over Server-Sent Events',
-      '12 themes, each with light and dark variants',
-      'Rate limits per participant and per IP, IPv6 per /64',
-    ],
-    stack: ['TypeScript', 'React 19', 'Hono', 'SQLite', 'Docker'],
-    year: '2026',
-    repo: 'https://github.com/DarkEden-coding/Mutual',
-    live: 'https://mutualmeet.app/',
-    images: [
-      {
-        src: '/projects/mutual-1.webp',
-        alt: 'Availability grid next to the group heatmap, with the ranked best times listed above',
-        width: 1280,
-        height: 800,
-      },
-      {
-        src: '/projects/mutual-2.webp',
-        alt: 'Theme picker open over the event page, showing classic and eccentric themes',
-        width: 1280,
-        height: 800,
-      },
-    ],
-  },
-  {
     id: 'slop-block',
     name: 'Slop Block',
     tab: 'Slop Block',
     tagline: 'GitHub App that makes unknown contributors prove they are human',
     summary:
-      'Labels issues and pull requests from unknown authors and posts a link where they verify with GitHub OAuth and a CAPTCHA. Maintainers set per-repository policies and allowlists from a dashboard, and the whole stack self-hosts with Docker Compose.',
+      'Keeps AI-generated spam out of open-source repos by making unknown contributors prove they’re human. Their issues and pull requests get labelled and a link to a GitHub OAuth and CAPTCHA check, with rules set per repository.',
     highlights: [
       'Rust/Axum API checks X-Hub-Signature-256 on every webhook',
       'Supports Cloudflare Turnstile, hCaptcha and reCAPTCHA',
@@ -161,7 +215,7 @@ export const PROJECTS: ProjectContent[] = [
     tab: 'Swath',
     tagline: 'Desktop workspace manager for terminals and coding agents',
     summary:
-      'Keeps each project in its own workspace with named terminal views and split panes, backed by real PTY shells from a Rust backend. Layouts, split ratios and shell profiles persist in SQLite, and running processes are deliberately not restored.',
+      'A desktop workspace for juggling terminals and coding agents across projects. Each project keeps its named terminal views and split panes of real shells, and layouts come back exactly as they were next session.',
     highlights: [
       'Tauri 2 app with portable-pty shells and xterm.js panes',
       'Split layouts stored as a LayoutNode tree per view',
