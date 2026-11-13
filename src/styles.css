@@ -153,7 +153,8 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .hero.is-touring .hint { opacity: 0; }
 
 .id-card { padding: 28px 32px 24px; flex: 0 1 460px; min-width: 0; }
-.id-card h1 { font-size: clamp(44px, 5.2vw, 76px); line-height: 0.92; font-weight: 500; letter-spacing: -0.045em; margin-left: -0.04em; }
+/* Same monospace as the contact email; sized so the 12 characters stay on one line in the card. */
+.id-card h1 { font-family: var(--mono); font-size: clamp(34px, 4vw, 56px); line-height: 0.95; font-weight: 500; letter-spacing: -0.04em; margin-left: -0.04em; }
 .id-card__sub { margin-top: 14px; color: var(--muted); font-size: 15px; }
 .id-card__facts { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; gap: 32px; font-size: 12px; }
 .id-card__facts dt { color: var(--faint); }
@@ -445,17 +446,17 @@ a.pill::after { content: '\00a0↗'; color: var(--accent-ink); }
 /* ---------- contact ---------- */
 
 .closing { padding: 0 0 32px; }
-.contact-card { padding: 40px; display: grid; gap: 28px; }
+.contact-card { padding: 32px 40px; display: grid; gap: 20px; }
+.contact-card__head { display: flex; align-items: center; gap: 12px; }
+.contact-card__head img { width: 28px; height: auto; }
+.contact-card__row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 24px; }
 .contact-card__email {
-  justify-self: start;
-  font-size: clamp(28px, 4.8vw, 72px); line-height: 1.05; letter-spacing: -0.04em; font-weight: 500;
-  overflow-wrap: anywhere; padding-bottom: 6px;
-  background: linear-gradient(var(--accent), var(--accent)) 0 100% / 0 3px no-repeat;
+  font-size: clamp(18px, 2.2vw, 28px); line-height: 1.2; letter-spacing: -0.02em; color: var(--ink);
+  overflow-wrap: anywhere; padding-bottom: 4px;
+  background: linear-gradient(var(--accent), var(--accent)) 0 100% / 0 2px no-repeat;
   transition: background-size 0.45s var(--ease);
 }
-.contact-card__email:hover { background-size: 100% 3px; }
-.contact-card__row { display: flex; align-items: center; gap: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
-.contact-card__row img { width: 36px; height: auto; }
+.contact-card__email:hover { background-size: 100% 2px; }
 .contact-card__links { display: flex; gap: 8px; margin-left: auto; font-size: 14px; }
 .contact-card__links a { padding: 10px 16px; border-radius: 999px; border: 1px solid var(--card-border); color: var(--muted); transition: border-color 0.2s, color 0.2s, transform 0.2s var(--ease); }
 .contact-card__links a:hover { border-color: var(--card-border-hover); color: var(--ink); transform: translateY(-1px); }
