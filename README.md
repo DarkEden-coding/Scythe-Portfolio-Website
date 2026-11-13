@@ -39,7 +39,7 @@ gh release create v1.2.0 --generate-notes
 After re-baking, upload the new cubes, then publish a release:
 
 ```sh
-tar -cf cubes.tar -C public/cubes . && gh release upload cubes cubes.tar --clobber
+COPYFILE_DISABLE=1 tar --no-xattrs -cf cubes.tar -C public/cubes . && gh release upload cubes cubes.tar --clobber
 ```
 
 ## How the cube works
