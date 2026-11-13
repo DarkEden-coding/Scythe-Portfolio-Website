@@ -49,7 +49,7 @@
           <div class="sim-card__head">
             <div class="mono">
               <p class="sim-card__label">Chaos cube</p>
-              <p class="sim-card__readout"><b id="sim-count">4,096,000</b> pendulums<br /><span id="sim-status">loading</span></p>
+              <p class="sim-card__readout"><b id="sim-count">4,096,000</b> pendulums<br /><span id="sim-status">loading</span><span id="sim-fps-wrap" hidden> · <span id="sim-fps">–</span> fps</span></p>
             </div>
             <div class="sim-card__actions">
               <button class="icon-btn" id="sim-regrow" type="button" aria-label="Grow a new cube">
@@ -89,6 +89,22 @@
               <label><input type="radio" name="quality" value="ultra" /><span>Ultra<small>320³</small></span></label>
             </fieldset>
 
+            <fieldset class="seg" id="rays">
+              <legend>Rays per pixel</legend>
+              <label><input type="radio" name="rays" value="auto" /><span>Auto<small>rays</small></span></label>
+              <label><input type="radio" name="rays" value="1" /><span>1<small>ray</small></span></label>
+              <label><input type="radio" name="rays" value="2" /><span>2<small>rays</small></span></label>
+              <label><input type="radio" name="rays" value="4" /><span>4<small>rays</small></span></label>
+            </fieldset>
+
+            <fieldset class="seg" id="resolution">
+              <legend>Render resolution</legend>
+              <label><input type="radio" name="resolution" value="auto" /><span>Auto<small>res</small></span></label>
+              <label><input type="radio" name="resolution" value="50" /><span>50%<small>res</small></span></label>
+              <label><input type="radio" name="resolution" value="75" /><span>75%<small>res</small></span></label>
+              <label><input type="radio" name="resolution" value="100" /><span>100%<small>res</small></span></label>
+            </fieldset>
+
             <fieldset class="seg" id="color-by">
               <legend>Colour by</legend>
               <label><input type="radio" name="color-by" value="plain" /><span>Plain</span></label>
@@ -122,6 +138,18 @@
                 <output class="mono" id="filter-k-out">6/26</output>
               </label>
             </div>
+
+            <label class="switch">
+              <input type="checkbox" id="temporal-aa" role="switch" checked />
+              <span class="switch__track" aria-hidden="true"></span>
+              <span>Temporal AA</span>
+            </label>
+
+            <label class="switch">
+              <input type="checkbox" id="show-fps" role="switch" />
+              <span class="switch__track" aria-hidden="true"></span>
+              <span>Show FPS</span>
+            </label>
           </div>
         </aside>
       </div>

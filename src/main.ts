@@ -232,7 +232,7 @@ const selectQuality = bindChoice<Quality>('quality', quality, q => {
 
 function setQuality(q: Quality): void {
   quality = q;
-  samplesCap = 4; // a different grid costs differently; let adapt() judge again
+  if (rays === 'auto') samplesCap = autoRays(); // a different grid costs differently; let adapt() judge again
   show(presetIndex, q, phase.name === 'rise' ? undefined : threshold); // keep the threshold
 }
 
@@ -254,6 +254,17 @@ bindChoice<Lighting>('lighting', lighting, l => {
 });
 
 bindFilter(k => view?.setFilter(k));
+
+// The frame rate, in the readout, when switched on in the settings.
+const fpsWrap = $('#sim-fps-wrap');
+const fpsOut = $('#sim-fps');
+const showFps = $<HTMLInputElement>('#show-fps');
+showFps.checked = localStorage.getItem('showFps') === 'true';
+fpsWrap.hidden = !showFps.checked;
+showFps.addEventListener('change', () => {
+  fpsWrap.hidden = !showFps.checked;
+  localStorage.setItem('showFps', String(showFps.checked));
+});
 bindDisclosure('sim-settings-toggle', 'settings');
 
 const homeDistance = smallScreen ? 5.6 : 4.1;
@@ -381,49 +392,93 @@ function layout(w: number, h: number): { shift: [number, number]; focal: number 
   return { shift: [0, home + (TOUR_SHIFT - home) * tour], focal: 1.6 * Math.min(1, aspect / 1.6) };
 }
 
-let renderScale = 1;
+type Rays = 'auto' | '1' | '2' | '4';
+type Resolution = 'auto' | '50' | '75' | '100';
+let rays: Rays = saved<Rays>('rays', { auto: true, 1: true, 2: true, 4: true }) ?? 'auto';
+let resolution: Resolution = saved<Resolution>('resolution', { auto: true, 50: true, 75: true, 100: true }) ?? 'auto';
+let renderScale = resolution === 'auto' ? 1 : Number(resolution) / 100;
 // Several rays per pixel stop pixel-sized voxels flashing as the volume drifts, but each costs
 // another full trace. Only the finished (or paused) cube gets them: while the threshold sweeps,
 // voxels change every frame anyway, and few showing makes rays long.
-let samplesCap: Samples = 4;
+//
+// The still cube also accumulates its rays over frames (Temporal AA, see accumulate.ts), at about
+// a tenth more than the cost of its rays. Measured against a 64-ray image, one ray accumulated comes
+// out about as close as four rays without it, and two accumulated a little closer, so Auto starts
+// there.
+const temporalSwitch = $<HTMLInputElement>('#temporal-aa');
+temporalSwitch.checked = localStorage.getItem('temporalAA') !== 'false';
+temporalSwitch.disabled = !view?.canAccumulate;
+const temporal = () => temporalSwitch.checked && !!view?.canAccumulate;
+const autoRays = (): Samples => (temporal() ? 2 : 4);
+let samplesCap: Samples = rays === 'auto' ? autoRays() : (Number(rays) as Samples);
+temporalSwitch.addEventListener('change', () => {
+  localStorage.setItem('temporalAA', String(temporalSwitch.checked));
+  if (rays === 'auto') samplesCap = autoRays();
+  resetFrameStats();
+});
 
 // Frame times since the ray count last changed, judged in windows by their median, so a single
-// stall doesn't count.
+// stall doesn't count. `skip` is in seconds.
 const frameStats = { samples: 0, skip: 0, times: [] as number[], slowWindows: 0 };
 function resetFrameStats(): void { frameStats.samples = 0; }
 
-// When frames run long: fewer rays per pixel first, then lower render resolution, then the grid
-// (unless someone picked one). Smooth motion matters more than the extra rays, so those go as soon
-// as a third of a second runs below 50 fps. The rest wait for two windows of 1.5 s below 40 fps,
-// so the GPU clocking up when the cube settles doesn't count.
+// Rays per pixel and render resolution: fixed, or left to adapt().
+bindChoice<Rays>('rays', rays, r => {
+  rays = r;
+  localStorage.setItem('rays', r);
+  samplesCap = r === 'auto' ? autoRays() : (Number(r) as Samples);
+  resetFrameStats();
+});
+bindChoice<Resolution>('resolution', resolution, r => {
+  resolution = r;
+  localStorage.setItem('resolution', r);
+  renderScale = r === 'auto' ? 1 : Number(r) / 100;
+  resetFrameStats();
+});
+
+// When frames run long: fewer rays per pixel first, then lower render resolution, then the grid,
+// each only where the settings leave it on Auto. Smooth motion matters more than the extra rays, so those go as soon
+// as a third of a second runs below 50 fps, and all at once below 25 fps: at a station, where the
+// rays are long, extra rays can take frames past 100 ms, and going down one step per 20 of those
+// frames lagged for seconds. The rest wait for two windows of 1.5 s below 40 fps, so the GPU
+// clocking up when the cube settles doesn't count.
 function adapt(dt: number): void {
   if (!view || loading) return;
   if (view.samples !== frameStats.samples) {
-    // The frame the ray count changes on, and the next few while the GPU clocks up, don't count.
-    Object.assign(frameStats, { samples: view.samples, skip: 6, times: [], slowWindows: 0 });
+    // The frame the ray count changes on, and the next tenth of a second while the GPU clocks up,
+    // don't count.
+    Object.assign(frameStats, { samples: view.samples, skip: 0.1, times: [], slowWindows: 0 });
     return;
   }
-  if (frameStats.skip-- > 0) return;
+  if (frameStats.skip > 0) { frameStats.skip -= dt; return; }
   const supersampling = view.samples > 1;
   frameStats.times.push(dt);
-  if (frameStats.times.length < (supersampling ? 20 : 90)) return;
+  const count = frameStats.times.length;
+  // Extra rays are judged over 20 frames or a third of a second (at least 3 frames), whichever
+  // comes first.
+  const windowDone = supersampling
+    ? count >= 20 || (count >= 3 && frameStats.times.reduce((sum, t) => sum + t, 0) >= 1 / 3)
+    : count >= 90;
+  if (!windowDone) return;
   const median = frameStats.times.sort((a, b) => a - b)[frameStats.times.length >> 1];
   frameStats.times = [];
   if (supersampling) {
-    if (median > 1 / 50) samplesCap = view.samples === 4 ? 2 : 1;
+    if (rays !== 'auto') return; // picked in the settings: keep it
+    if (median > 1 / 25) samplesCap = 1;
+    else if (median > 1 / 50) samplesCap = view.samples === 4 ? 2 : 1;
     return;
   }
   if (median <= 1 / 40) { frameStats.slowWindows = 0; return; }
   if (++frameStats.slowWindows < 2) return;
   frameStats.slowWindows = 0;
-  if (renderScale > 0.6) {
+  if (resolution === 'auto' && renderScale > 0.6) {
     renderScale -= 0.15;
   } else if (!userPickedQuality && quality !== 'low') {
     const order: Quality[] = ['low', 'medium', 'high', 'ultra'];
     const lower = order[order.indexOf(quality) - 1];
     selectQuality(lower);
     setQuality(lower);
-    renderScale = 1;
+    if (resolution === 'auto') renderScale = 1;
   }
 }
 
@@ -434,7 +489,9 @@ function draw(): void {
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   const { shift, focal } = layout(w, h);
   view.threshold = threshold;
-  view.samples = (paused || phase.name === 'hold') && !flight ? samplesCap : 1;
+  const still = (paused || phase.name === 'hold') && !flight;
+  view.samples = still ? samplesCap : 1;
+  view.accumulate = still && temporal();
   view.offset = move.map(m => m * view.size) as typeof move;
   view.carve = [...boreAxis, BORE * tour];
   view.draw(camera.basis(), w, h, shift, focal);
@@ -460,9 +517,17 @@ new IntersectionObserver(([e]) => { heroVisible = e.isIntersecting; }).observe(h
 
 let last = performance.now();
 let readoutClock = 0;
+const fpsCount = { frames: 0, since: performance.now() };
 function frame(now: number): void {
   const dt = Math.min(0.1, (now - last) / 1000);
   last = now;
+  // Averaged over half a second, so the number is readable.
+  fpsCount.frames++;
+  if (now - fpsCount.since >= 500) {
+    if (!fpsWrap.hidden) fpsOut.textContent = String(Math.round((fpsCount.frames * 1000) / (now - fpsCount.since)));
+    fpsCount.frames = 0;
+    fpsCount.since = now;
+  }
   if (view && heroVisible && !document.hidden) {
     camera.update(dt);
     if (flight) {

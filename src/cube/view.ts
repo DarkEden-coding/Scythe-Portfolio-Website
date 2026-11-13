@@ -3,6 +3,7 @@
 // all run on the GPU, so they stay live.
 
 import { CHAOS } from '../presets.ts';
+import { Accumulator } from './accumulate.ts';
 import { createProgram, hexToRgb, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, RENDER_FS } from './shaders.ts';
@@ -30,7 +31,7 @@ const VOXELS_PER_FRAME = 1 << 22;
 interface Volume {
   n: number;
   chaos: WebGLTexture; // chaos level per voxel
-  filtered: WebGLTexture; // highest threshold each voxel passes the filter at
+  filtered: WebGLTexture; // highest threshold each voxel passes the filter at, with its order (see FILTER_FS)
   bricks: WebGLTexture; // highest level per brick of the volume
   bricksStale: boolean;
 }
@@ -60,6 +61,11 @@ export class CubeView {
   carve: [number, number, number, number] = [0, 0, 1, 0];
   /** 0 = no filter; otherwise the number of showing neighbours (of 26) a voxel needs. */
   filterK = 0;
+  /** Accumulate rays over frames (see accumulate.ts): each frame's `samples` rays per pixel go to
+   * different points in the pixel, and add up with earlier frames'. Only for a still cube: the
+   * history follows the camera and the volume's drift, but anything else that changes the image
+   * takes a few frames to come through. Ignored where float render targets aren't there. */
+  accumulate = false;
 
   private filter: Program;
   private brickPass: Program;
@@ -68,6 +74,8 @@ export class CubeView {
   private volume: Volume | null = null; // the cube on screen
   private incoming: Incoming | null = null;
   private filterTarget: WebGLFramebuffer;
+  private accumulator: Accumulator;
+  private lastOffset: [number, number, number] | null = null; // for the voxels' motion between frames
 
   /** Returns null without WebGL2. */
   static create(canvas: HTMLCanvasElement, opts: ViewOptions): CubeView | null {
@@ -89,7 +97,19 @@ export class CubeView {
     this.render = createProgram(gl, FULLSCREEN_VS, RENDER_FS);
     this.edges = createProgram(gl, EDGES_VS, EDGES_FS);
     this.filterTarget = gl.createFramebuffer();
+    this.accumulator = new Accumulator(gl);
     gl.bindVertexArray(gl.createVertexArray());
+  }
+
+  /** Whether `accumulate` works here (it needs float render targets). */
+  get canAccumulate(): boolean {
+    return this.accumulator.supported;
+  }
+
+  /** How far the cube on its way in has got onto the GPU, 0..1; null when none is. */
+  get loadProgress(): number | null {
+    const job = this.incoming;
+    return job ? (job.uploaded + job.filtered) / (2 * job.volume.n) : null;
   }
 
   /** Grid size of the cube on screen (0 before the first). */
@@ -102,7 +122,7 @@ export class CubeView {
    * same size, being overwritten, is hidden. */
   load(bytes: Uint8Array, n: number): Promise<void> {
     const volume = (this.incoming?.volume.n === n ? this.incoming.volume : this.volume?.n === n ? this.volume : null)
-      ?? { n, chaos: this.texture(n), filtered: this.texture(n), bricks: this.texture(n / BRICK), bricksStale: true };
+      ?? { n, chaos: this.texture(n, 'R8UI'), filtered: this.texture(n, 'R16UI'), bricks: this.texture(n / BRICK, 'R8UI'), bricksStale: true };
     if (this.incoming) {
       const old = this.incoming.volume;
       if (old !== volume && old !== this.volume) this.deleteVolume(old);
@@ -114,13 +134,15 @@ export class CubeView {
   setFilter(k: number): void {
     this.filterK = k;
     if (this.incoming) this.incoming.filtered = 0;
-    if (k > 0 && this.volume && this.volume !== this.incoming?.volume) this.refreshFilter(this.volume, 0, this.volume.n);
+    if (this.volume && this.volume !== this.incoming?.volume) this.refreshFilter(this.volume, 0, this.volume.n);
     if (this.volume) this.volume.bricksStale = true;
   }
 
   draw(camera: CameraBasis, pixelWidth: number, pixelHeight: number, shift: [number, number], focal: number): void {
     const { gl } = this;
     if (this.incoming) this.continueLoad(this.incoming);
+    const temporal = this.accumulate && this.accumulator.supported;
+    if (!temporal) this.accumulator.reset();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, pixelWidth, pixelHeight);
     gl.clearColor(0, 0, 0, 0);
@@ -145,13 +167,17 @@ export class CubeView {
         gl.viewport(0, 0, pixelWidth, pixelHeight);
         gl.enable(gl.BLEND);
       }
+      if (temporal) {
+        this.accumulator.begin(pixelWidth, pixelHeight);
+        gl.disable(gl.BLEND);
+      }
       const u = this.render.uniforms;
       gl.useProgram(this.render.program);
       this.setCamera(this.render, camera, pixelWidth, pixelHeight, shift, focal);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_3D, volume.chaos);
       gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_3D, this.filterK > 0 ? volume.filtered : volume.chaos);
+      gl.bindTexture(gl.TEXTURE_3D, volume.filtered);
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_3D, volume.bricks);
       gl.uniform1i(u.uChaos, 0);
@@ -170,6 +196,11 @@ export class CubeView {
       gl.uniform3fv(u['uRamp[0]'], this.opts.ramp.flatMap(hexToRgb));
       gl.uniform1i(u.uSun, this.opts.sun ? 1 : 0);
       gl.uniform1i(u.uSamples, this.samples);
+      // With several rays, each already has its own part of the pixel; the jitter moves them about
+      // within it.
+      const jitter = temporal ? this.accumulator.jitter.map(j => (this.samples > 1 ? j / 2 : j)) : [0, 0];
+      gl.uniform2fv(u.uJitter, jitter);
+      gl.uniform1f(u.uSunTurn, temporal ? this.accumulator.sunTurn : 0);
       gl.uniform4fv(u.uCarve, this.carve);
       // The sun keeps its place relative to the viewer (high, upper left, behind them), so orbiting
       // looks like the cube turning under a fixed sun.
@@ -177,11 +208,24 @@ export class CubeView {
       const len = Math.hypot(...sun);
       gl.uniform3f(u.uSunDir, sun[0] / len, sun[1] / len, sun[2] / len);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
+      if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n));
     }
     gl.disable(gl.BLEND);
   }
 
   // ---------- internals ----------
+
+  /** How far the voxels moved since the last call, in world units: the volume moving through the
+   * box shifts them the other way. Takes the short way round where the offset wraps. */
+  private motion(n: number): [number, number, number] {
+    const last = this.lastOffset ?? this.offset;
+    this.lastOffset = [...this.offset];
+    return this.offset.map((o, i) => {
+      let d = o - last[i];
+      d -= n * Math.round(d / n);
+      return (-d * 2) / n;
+    }) as [number, number, number];
+  }
 
   private setCamera(p: Program, c: CameraBasis, w: number, h: number, shift: [number, number], focal: number): void {
     const { gl } = this;
@@ -209,7 +253,7 @@ export class CubeView {
       job.uploaded += count;
       return;
     }
-    if (this.filterK > 0 && job.filtered < n) {
+    if (job.filtered < n) {
       const count = Math.min(slices, n - job.filtered);
       this.refreshFilter(job.volume, job.filtered, count);
       job.filtered += count;
@@ -254,7 +298,7 @@ export class CubeView {
     gl.viewport(0, 0, size, size);
     gl.useProgram(this.brickPass.program);
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_3D, this.filterK > 0 ? volume.filtered : volume.chaos);
+    gl.bindTexture(gl.TEXTURE_3D, volume.filtered);
     gl.uniform1i(u.uPass, 0);
     for (let z = 0; z < size; z++) {
       gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, volume.bricks, 0, z);
@@ -269,11 +313,11 @@ export class CubeView {
     this.gl.deleteTexture(volume.bricks);
   }
 
-  private texture(n: number): WebGLTexture {
+  private texture(n: number, format: 'R8UI' | 'R16UI'): WebGLTexture {
     const { gl } = this;
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_3D, texture);
-    gl.texStorage3D(gl.TEXTURE_3D, 1, gl.R8UI, n, n, n);
+    gl.texStorage3D(gl.TEXTURE_3D, 1, gl[format], n, n, n);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     return texture;

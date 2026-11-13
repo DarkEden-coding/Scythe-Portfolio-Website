@@ -2,10 +2,13 @@
 // The volume is periodic (angles wrap at ±π), so neighbours and the move offset wrap around. The
 // ray-cast works in volume coordinates: the box is a window [offset, offset + n] onto the endless
 // tiled volume, so moves can be fractions of a voxel and the box faces cut through voxels.
-//  FILTER_FS  per voxel, the highest threshold at which it still shows with k showing neighbours
+//  FILTER_FS  per voxel, the highest threshold at which it still shows with k showing neighbours,
+//             with the voxel's order (see there) packed in below it
 //  BRICKS_FS  per 4³ block of the volume, its highest level, so rays skip empty blocks
 //  RENDER_FS  ray-casts the grid and draws visible voxels as lit cubes, studio-lit or sunlit with shadows;
 //             a bore can be cut into them, which is where the project panels float
+//  RESOLVE_FS blends a frame's rays into the reprojected earlier frames' (see accumulate.ts)
+//  PRESENT_FS copies that blend to the screen
 //  EDGES_*    draws the cube's 12 outline edges
 
 // Full-screen triangle, no vertex buffer needed.
@@ -17,7 +20,12 @@ void main() {
 
 // A voxel shows at threshold T when its level is at least T. With the filter it also needs k of its
 // 26 neighbours to show, so it passes up to min(own, k-th highest neighbour). Storing that level
-// keeps the filter exact for every threshold, so sweeping needs no refresh.
+// keeps the filter exact for every threshold, so sweeping needs no refresh. k = 0 is no filter.
+//
+// Below the level, in the low 8 bits, goes a fixed random fraction per voxel (its order). Levels are
+// whole numbers, so without it every voxel in a level would appear at once as the threshold passes;
+// with it they appear one by one across the level. The ray-cast reads this texture for every cell
+// it visits, so the hash is worked out here once instead of there each time.
 export const FILTER_FS = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
@@ -27,6 +35,12 @@ uniform int uN;
 uniform int uZ;
 uniform int uK;
 out uint fragColor;
+
+uint order(ivec3 d) {
+  uint h = uint(d.x) * 73856093u ^ uint(d.y) * 19349663u ^ uint(d.z) * 83492791u;
+  h ^= h >> 15; h *= 0x2c1b3c6du; h ^= h >> 12; h *= 0x297a2d39u; h ^= h >> 15;
+  return h >> 24;
+}
 
 // Neighbours are at most one cell outside the volume, so a compare per side wraps them.
 uint level(ivec3 c) {
@@ -55,7 +69,7 @@ void main() {
     for (int m = 0; m < 26; m++) above += v[m] >= mid ? 1 : 0;
     if (above >= uK) lo = mid; else hi = mid - 1u;
   }
-  fragColor = lo;
+  fragColor = lo << 8 | order(c);
 }`;
 
 export const BRICK = 4; // voxels per brick edge; every grid size is a multiple
@@ -76,7 +90,7 @@ void main() {
     for (int y = 0; y < ${BRICK}; y++)
       for (int x = 0; x < ${BRICK}; x++)
         top = max(top, texelFetch(uPass, origin + ivec3(x, y, z), 0).r);
-  fragColor = top;
+  fragColor = top >> 8; // the level, without the order
 }`;
 
 export const RENDER_FS = /* glsl */ `#version 300 es
@@ -85,7 +99,7 @@ precision highp int;
 precision highp usampler3D;
 
 uniform usampler3D uChaos;  // chaos level per voxel
-uniform usampler3D uPass;   // highest threshold each voxel shows at (uChaos itself without the filter)
+uniform usampler3D uPass;   // highest threshold each voxel shows at, in 256ths, order included (see FILTER_FS)
 uniform usampler3D uBricks; // highest uPass level per brick of the volume
 uniform float uLevels;      // levels - 1: the top chaos level
 uniform int uN;
@@ -109,8 +123,14 @@ uniform bool uSun;          // sun lighting with cast shadows, instead of the st
 uniform vec3 uSunDir;       // towards the sun
 uniform int uSamples;       // rays per pixel: 1, 2 or 4
 uniform vec4 uCarve;        // a bore cut into the voxels: xyz its axis, from the centre out; w its radius in box units (0: none)
+uniform vec2 uJitter;       // where in the pixel the ray goes when accumulating over frames (see RESOLVE_FS)
+uniform float uSunTurn;     // turns each frame's points on the sun disk when accumulating
 
-out vec4 fragColor;
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out float fragDepth; // distance to the first surface drawn, -1 for none; for reprojection
+
+// Set by trace(): the distance along the ray to the first surface it drew, or -1.
+float firstDepth = -1.0;
 
 // Cells are in the tiled volume: 0..2n inside the box, a cell further for neighbours, so a
 // couple of compares wrap them. Integer % is slow on GPUs, and every voxel read goes through here.
@@ -122,14 +142,6 @@ ivec3 wrap(ivec3 c, int n) {
 }
 ivec3 data(ivec3 cell) { return wrap(cell, uN); }
 float chaos(ivec3 cell) { return float(texelFetch(uChaos, data(cell), 0).r); }
-
-// A fixed random fraction per voxel. Levels are whole numbers, so without it every voxel in a level
-// would appear at once as the threshold passes; with it they appear one by one across the level.
-float order(ivec3 d) {
-  uint h = uint(d.x) * 73856093u ^ uint(d.y) * 19349663u ^ uint(d.z) * 83492791u;
-  h ^= h >> 15; h *= 0x2c1b3c6du; h ^= h >> 12; h *= 0x297a2d39u; h ^= h >> 15;
-  return float(h >> 8) / 16777216.0;
-}
 
 // How much of a cell the bore removes: all of it near the axis, less towards the rim, so the wall
 // is ragged where chaotic voxels outlast calm ones. The bore runs from the box centre out along
@@ -143,10 +155,21 @@ float carved(ivec3 cell) {
 // How far above the threshold a voxel sits; it shows at 0 or more.
 float margin(ivec3 cell) {
   ivec3 d = data(cell);
-  float m = float(texelFetch(uPass, d, 0).r) + order(d) - uThreshold;
+  float m = float(texelFetch(uPass, d, 0).r) * (1.0 / 256.0) - uThreshold;
   return uCarve.w > 0.0 ? m - carved(cell) * (uLevels + 1.0) : m;
 }
 bool shows(ivec3 cell) { return margin(cell) >= 0.0; }
+
+// Whether the bore removes every cell of a brick, so a ray can skip it like an empty one. The
+// distance from the axis changes no faster than position, so it is enough that the brick's centre
+// sits half a brick diagonal inside where the bore starts to thin.
+bool boredOut(ivec3 brick) {
+  if (uCarve.w <= 0.0) return false;
+  float scale = 2.0 / float(uN);
+  vec3 q = (vec3(brick * ${BRICK}) + ${BRICK / 2}.0 - uOffset) * scale - 1.0;
+  vec3 off = q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0);
+  return length(off) + ${(Math.sqrt(3) * BRICK / 2).toFixed(4)} * scale <= 0.85 * uCarve.w;
+}
 
 // Cells near a box face fade, so as the volume moves, a voxel crossing a face changes over several
 // voxels of travel and single-voxel holes there open and close gradually instead of blinking.
@@ -261,10 +284,11 @@ void stepCell(inout Ray r) {
 bool findShowing(inout Ray r) {
   for (int i = 0; i < 1024; i++) {
     if (r.t > r.tLimit) return false;
-    // Nothing in this brick shows (sub-levels add less than 1): jump to where the ray leaves it.
+    // Nothing in this brick shows (sub-levels add less than 1, or the bore takes all of it): jump to
+    // where the ray leaves it.
     // Each brick is looked up once, when the ray enters it.
     ivec3 brick = r.cell >> ${Math.log2(BRICK)};
-    if (brick != r.brick && float(texelFetch(uBricks, wrap(brick, uN >> ${Math.log2(BRICK)}), 0).r) + 1.0 <= uThreshold) {
+    if (brick != r.brick && (float(texelFetch(uBricks, wrap(brick, uN >> ${Math.log2(BRICK)}), 0).r) + 1.0 <= uThreshold || boredOut(brick))) {
       vec3 exitAt = vec3(brick * ${BRICK}) + (r.stepDir * 0.5 + 0.5) * float(${BRICK});
       vec3 tb = (exitAt - r.p) * r.inv;
       float tExit = min(min(tb.x, tb.y), tb.z);
@@ -421,6 +445,7 @@ vec4 trace(vec2 pixel, vec2 sunOffset) {
     float a = presence(cell);
     if (a > 0.0 && shows(cell)) {
       Ray r = startRay(p, rd, cell, outerNormal, tLimit); // lit where the ray enters, like the face
+      if (firstDepth < 0.0) firstDepth = tStart;
       col += (1.0 - alpha) * a * shade(r, tStart);
       alpha += (1.0 - alpha) * a;
       if (alpha > 0.995) { shadingSheet = false; return vec4(col, alpha); }
@@ -444,6 +469,7 @@ vec4 trace(vec2 pixel, vec2 sunOffset) {
     for (int layer = 0; layer < 8; layer++) {
       if (!findShowing(r)) break;
       float a = presence(r.cell);
+      if (firstDepth < 0.0) firstDepth = tStart + r.t * 2.0 / n;
       col += (1.0 - alpha) * a * shade(r, tStart + r.t * 2.0 / n);
       alpha += (1.0 - alpha) * a;
       if (alpha > 0.995) break;
@@ -465,16 +491,102 @@ void main() {
   // Each ray also aims its shadow at its own point on the sun disk, turned per pixel so the
   // softened edges don't band. Two rays or one cast a shadow ray each; four share them in pairs,
   // so a pixel never casts more than two.
-  float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853;
+  float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853 + uSunTurn;
   mat2 spin = mat2(cos(turn), sin(turn), -sin(turn), cos(turn));
   vec4 sum = vec4(0.0);
   for (int i = 0; i < uSamples; i++) {
     if (uSamples < 4 || i % 2 == 0) sharedSunlight = -1.0;
     vec2 offset = SAMPLES[uSamples - 1 + i];
-    sum += trace(gl_FragCoord.xy + offset, spin * (uSamples == 1 ? vec2(0.5, 0.0) : offset * 2.0));
+    sum += trace(gl_FragCoord.xy + uJitter + offset, spin * (uSamples == 1 ? vec2(0.5, 0.0) : offset * 2.0));
+    if (i == 0) fragDepth = firstDepth;
   }
   fragColor = sum / float(uSamples);
 }`;
+
+// Accumulating over frames: each frame casts its rays at different points in the pixel (and on the
+// sun disk) from the last, and this blends them into the history. The history is reprojected through
+// the first surface's distance, so it follows the camera, and clipped to the spread of this frame's
+// 3×3 neighbourhood (mean ± one standard deviation), so it can't keep colours that are no longer
+// there (no ghosting). The history is read with a Catmull-Rom filter: a bilinear read blurs a
+// little every frame the camera turns, and that adds up.
+export const RESOLVE_FS = /* glsl */ `#version 300 es
+precision highp float;
+uniform sampler2D uCurrent;  // this frame, premultiplied
+uniform sampler2D uDepth;    // this frame's first-surface distances
+uniform sampler2D uHistory;  // the blend so far, premultiplied
+uniform float uBlend;        // weight of this frame
+uniform vec2 uResolution;
+uniform vec2 uShift;
+uniform float uFocal;
+uniform vec3 uEye, uRight, uUp, uForward;
+uniform vec2 uPrevShift;
+uniform float uPrevFocal;
+uniform vec3 uPrevEye, uPrevRight, uPrevUp, uPrevForward;
+uniform vec3 uMotion;        // how far the voxels moved since the last frame (the volume drifting), in world units
+out vec4 fragColor;
+
+// Catmull-Rom over the 4×4 texels around uv, in 5 bilinear reads (the corners are left out; they
+// weigh almost nothing). After "Filmic SMAA" (Jimenez, 2016).
+vec4 catmullRom(sampler2D tex, vec2 uv, vec2 size) {
+  vec2 pos = uv * size;
+  vec2 centre = floor(pos - 0.5) + 0.5;
+  vec2 f = pos - centre;
+  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+  vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+  vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+  vec2 w3 = f * f * (-0.5 + 0.5 * f);
+  vec2 w12 = w1 + w2;
+  vec2 tc0 = (centre - 1.0) / size;
+  vec2 tc3 = (centre + 2.0) / size;
+  vec2 tc12 = (centre + w2 / w12) / size;
+  vec4 c = texture(tex, vec2(tc12.x, tc0.y)) * w12.x * w0.y
+    + texture(tex, vec2(tc0.x, tc12.y)) * w0.x * w12.y
+    + texture(tex, tc12) * w12.x * w12.y
+    + texture(tex, vec2(tc3.x, tc12.y)) * w3.x * w12.y
+    + texture(tex, vec2(tc12.x, tc3.y)) * w12.x * w3.y;
+  float weight = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+  return max(c / weight, 0.0);
+}
+
+void main() {
+  ivec2 px = ivec2(gl_FragCoord.xy);
+  ivec2 last = ivec2(uResolution) - 1;
+  vec4 cur = texelFetch(uCurrent, px, 0);
+  vec4 sum = vec4(0.0), sumSq = vec4(0.0);
+  for (int dy = -1; dy <= 1; dy++)
+    for (int dx = -1; dx <= 1; dx++) {
+      vec4 c = texelFetch(uCurrent, clamp(px + ivec2(dx, dy), ivec2(0), last), 0);
+      sum += c;
+      sumSq += c * c;
+    }
+  vec4 mean = sum / 9.0;
+  vec4 spread = sqrt(max(sumSq / 9.0 - mean * mean, 0.0));
+  vec4 lo = mean - spread, hi = mean + spread;
+
+  // Where this pixel's surface was on screen last frame. Pixels that missed the cube reproject
+  // through the cube's centre distance.
+  float depth = texelFetch(uDepth, px, 0).r;
+  vec2 uv = (gl_FragCoord.xy * 2.0 - uResolution) / uResolution.y - uShift;
+  vec3 rd = normalize(uForward * uFocal + uRight * uv.x + uUp * uv.y);
+  vec3 world = uEye + rd * (depth > 0.0 ? depth : length(uEye));
+  vec3 d = world - uMotion - uPrevEye;
+  float z = dot(d, uPrevForward);
+  vec2 prevUv = vec2(dot(d, uPrevRight), dot(d, uPrevUp)) * uPrevFocal / z + uPrevShift;
+  vec2 prev = (prevUv * uResolution.y + uResolution) * 0.5 / uResolution;
+  if (z <= 0.0 || any(lessThan(prev, vec2(0.0))) || any(greaterThan(prev, vec2(1.0)))) {
+    fragColor = cur;
+    return;
+  }
+  vec4 history = clamp(catmullRom(uHistory, prev, uResolution), lo, hi);
+  fragColor = mix(history, cur, uBlend);
+}`;
+
+// Copies the accumulated image to the screen.
+export const PRESENT_FS = /* glsl */ `#version 300 es
+precision highp float;
+uniform sampler2D uImage;
+out vec4 fragColor;
+void main() { fragColor = texelFetch(uImage, ivec2(gl_FragCoord.xy), 0); }`;
 
 // The 12 cube edges as 24 line endpoints, projected with the same camera as the ray-cast.
 export const EDGES_VS = /* glsl */ `#version 300 es
