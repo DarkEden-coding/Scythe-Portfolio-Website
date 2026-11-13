@@ -18,7 +18,29 @@ npm run deploy     # build, then upload dist/ to Cloudflare with wrangler
 ```
 
 The cube files in `public/cubes/` are not in the repo (about 120 MB). Without them the page loads
-but the cube says "could not load". To make them, see [Baking the cubes](#baking-the-cubes).
+but the cube says "could not load". To make them, see [Baking the cubes](#baking-the-cubes), or
+download the current set from the `cubes` release:
+
+```sh
+gh release download cubes --pattern cubes.tar && mkdir -p public/cubes && tar -xf cubes.tar -C public/cubes
+```
+
+## Deploying
+
+Publishing a GitHub release deploys the site to [elliotscully.dev](https://elliotscully.dev) (and
+`www.`). The workflow in `.github/workflows/deploy.yml` downloads the cubes from the `cubes`
+release, runs the tests, builds, and runs `wrangler deploy`. It reads the `CLOUDFLARE_API_TOKEN`
+and `CLOUDFLARE_ACCOUNT_ID` repository secrets.
+
+```sh
+gh release create v1.2.0 --generate-notes
+```
+
+After re-baking, upload the new cubes, then publish a release:
+
+```sh
+tar -cf cubes.tar -C public/cubes . && gh release upload cubes cubes.tar --clobber
+```
 
 ## How the cube works
 
