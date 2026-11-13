@@ -11,8 +11,10 @@ import { CHAOS, cubeUrl, GRID, PRESETS, type Quality } from './presets.ts';
 import { PROJECTS } from './projects/content.ts';
 import { ProjectStage } from './projects/stage.ts';
 import { STATIONS, type Station } from './projects/stations.ts';
+import { buildProjectList } from './projects/list.ts';
 import { buildTabs } from './projects/tabs.ts';
 import { bindChoice, bindDisclosure, bindFilter, bindThreshold } from './ui/controls.ts';
+import { renderContributions } from './ui/contributions.ts';
 import { Loader } from './ui/loader.ts';
 
 // Playback lowers the threshold, so the cube grows from its most chaotic voxels outward, holds,
@@ -275,7 +277,7 @@ showFps.addEventListener('change', () => {
 });
 bindDisclosure('sim-settings-toggle', 'settings');
 
-const homeDistance = smallScreen ? 5.6 : 4.1;
+const homeDistance = smallScreen ? 4.7 : 4.1;
 const camera = new OrbitCamera({
   yaw: 0.72, pitch: HOME.pitch, distance: homeDistance,
   minDistance: 2, maxDistance: 8, autoRotate: reducedMotion ? 0 : HOME.autoRotate,
@@ -347,6 +349,12 @@ function homePose(): Pose {
 
 const stage = new ProjectStage($('#stage'), PROJECTS, STATIONS, () => openProject(null));
 const selectTab = buildTabs($('#project-tabs'), PROJECTS, index => openProject(index));
+renderContributions($('#contributions'));
+// The list below the cube; its buttons go back up and fly there.
+buildProjectList($('#project-list'), PROJECTS, view ? index => {
+  hero.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth' });
+  openProject(index);
+} : null);
 
 /** Opens a project (null: back to the whole cube): flies there, or jumps with `instant`. */
 function openProject(index: number | null, instant = false): void {

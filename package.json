@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/contributions.mjs && tsc --noEmit && vite build",
+    "contributions": "node scripts/contributions.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "bake": "node scripts/bake.mjs"
