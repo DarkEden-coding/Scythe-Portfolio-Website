@@ -114,14 +114,12 @@ export class OrbitCamera {
   }
 
   basis(): CameraBasis {
-    const yaw = this.yaw - this.lean.x * 0.18;
-    const pitch = clamp(this.pitch + this.lean.y * 0.12, -1.35, 1.35);
-    const cp = Math.cos(pitch);
-    const eye: V3 = [this.distance * cp * Math.sin(yaw), this.distance * Math.sin(pitch), this.distance * cp * Math.cos(yaw)];
-    const forward = normalize([-eye[0], -eye[1], -eye[2]]);
-    const right = normalize(cross(forward, [0, 1, 0]));
-    const up = cross(right, forward);
-    return { eye, right, up, forward };
+    return orbitBasis(this.yaw - this.lean.x * 0.18, clamp(this.pitch + this.lean.y * 0.12, -1.35, 1.35), this.distance);
+  }
+
+  /** Drops any spin left over from the last drag. */
+  stop(): void {
+    this.velocity = 0;
   }
 
   private zoomTo(d: number): void {
@@ -132,6 +130,16 @@ export class OrbitCamera {
     const [a, b] = [...this.pointers.values()];
     return Math.hypot(a.x - b.x, a.y - b.y);
   }
+}
+
+/** The camera looking at the origin from a yaw and pitch, a distance away. */
+export function orbitBasis(yaw: number, pitch: number, distance: number): CameraBasis {
+  const cp = Math.cos(pitch);
+  const eye: V3 = [distance * cp * Math.sin(yaw), distance * Math.sin(pitch), distance * cp * Math.cos(yaw)];
+  const forward = normalize([-eye[0], -eye[1], -eye[2]]);
+  const right = normalize(cross(forward, [0, 1, 0]));
+  const up = cross(right, forward);
+  return { eye, right, up, forward };
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));

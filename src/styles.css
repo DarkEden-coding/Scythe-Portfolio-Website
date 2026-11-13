@@ -10,6 +10,7 @@
   --radius: 18px;
   --ink: #edece9;
   --muted: #9a9995;
+  --soft: #b9b8b3; /* body text on panels over the voxels */
   --faint: #6c6b68;
   --line: rgba(255, 255, 255, 0.07);
   --accent: #cc1417;
@@ -37,8 +38,8 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, p, ol, dl, dd, fieldset { margin: 0; }
-ol { padding: 0; list-style: none; }
+h1, h2, p, ol, ul, dl, dd, fieldset { margin: 0; }
+ol, ul { padding: 0; list-style: none; }
 fieldset { border: 0; padding: 0; min-width: 0; }
 img { display: block; }
 [hidden] { display: none !important; }
@@ -71,13 +72,38 @@ button, input { font: inherit; color: inherit; }
 /* ---------- nav ---------- */
 
 .nav { position: absolute; top: 20px; left: 0; right: 0; z-index: 5; }
-.nav__card { display: flex; align-items: center; justify-content: space-between; padding: 8px 8px 8px 16px; border-radius: 999px; }
+.nav__card { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 8px 8px 8px 16px; border-radius: 999px; transition: background-color 0.5s; }
 .nav__brand { display: flex; align-items: center; gap: 10px; }
-.nav__brand img:first-child { width: 26px; height: 26px; }
+.nav__brand img:first-child { width: 26px; height: auto; }
 .nav__word { width: 104px; height: auto; }
 .nav nav { display: flex; gap: 4px; font-size: 14px; }
 .nav nav a { padding: 10px 16px; border-radius: 999px; color: var(--muted); transition: background-color 0.2s, color 0.2s; }
 .nav nav a:hover { background: rgba(255, 255, 255, 0.06); color: var(--ink); }
+
+/* Project tabs: a marker slides under the open one. */
+.tabs { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; font-size: 13px; }
+.tabs__label { padding: 0 10px 0 4px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.tabs__tab {
+  position: relative; z-index: 1; flex: none; padding: 9px 13px; border: 0; border-radius: 999px; background: none;
+  color: var(--muted); white-space: nowrap; cursor: pointer; transition: color 0.2s;
+}
+.tabs__tab:hover, .tabs__tab[aria-pressed='true'] { color: var(--ink); }
+.tabs__tab:focus-visible { outline-offset: -2px; border-radius: 999px; }
+.tabs__marker {
+  position: absolute; left: 0; top: 0; border-radius: 999px; pointer-events: none;
+  background: rgba(255, 255, 255, 0.07); box-shadow: 0 0 0 1px var(--card-border-hover) inset, 0 -2px 0 -1px var(--accent-ink) inset;
+  opacity: 0; transition: transform 0.5s var(--ease), width 0.5s var(--ease), height 0.5s var(--ease), opacity 0.25s;
+}
+.tabs__marker.is-shown { opacity: 1; }
+
+@media (max-width: 960px) {
+  /* The tabs take a row of their own under the brand, and wrap when that is too narrow. */
+  .nav__card { flex-wrap: wrap; border-radius: 24px; padding: 8px 8px 6px 16px; }
+  .tabs { order: 3; flex: 0 0 100%; flex-wrap: wrap; margin-left: -8px; }
+  .tabs__label { padding-left: 13px; }
+}
+/* At a project the voxels run under the header, so it lets less through. */
+body:has(.hero.is-touring) .nav__card { background: rgba(30, 30, 33, 0.92); }
 
 /* ---------- small controls ---------- */
 
@@ -116,13 +142,17 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
   display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
   padding-bottom: 24px; pointer-events: none;
 }
-.hero__inner > * { pointer-events: auto; }
+.hero__inner > * { pointer-events: auto; transition: opacity 0.45s, transform 0.6s var(--ease), visibility 0.45s; }
+/* At a project the cards step aside for its panels. */
+.hero.is-touring .hero__inner > * { opacity: 0; transform: translateY(20px); visibility: hidden; pointer-events: none; }
+.hero.is-touring .hint { opacity: 0; }
 
 .id-card { padding: 28px 32px 24px; flex: 0 1 460px; min-width: 0; }
 .id-card h1 { font-size: clamp(44px, 5.2vw, 76px); line-height: 0.92; font-weight: 500; letter-spacing: -0.045em; margin-left: -0.04em; }
 .id-card__sub { margin-top: 14px; color: var(--muted); font-size: 15px; }
 .id-card__facts { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; gap: 32px; font-size: 12px; }
 .id-card__facts dt { color: var(--faint); }
+.id-card__facts a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .sim-card { flex: 0 0 340px; min-width: 0; padding: 16px; display: grid; gap: 14px; font-size: 13px; }
 .sim-card__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
@@ -132,6 +162,9 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .sim-card__readout span { white-space: nowrap; }
 .sim-card__readout b { color: var(--ink); font-weight: 500; }
 .sim-card__actions { display: flex; gap: 6px; }
+.sim-card__settings { display: grid; gap: 14px; }
+.icon-btn--caret svg { transition: transform 0.25s var(--ease); }
+.icon-btn--caret[aria-expanded='true'] svg { transform: rotate(180deg); }
 
 .seg { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border-radius: 12px; background: rgba(0, 0, 0, 0.22); border: 1px solid var(--line); }
 .seg legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
@@ -179,8 +212,94 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
   transition: opacity 0.6s;
   animation: hint-in 1s 2.5s var(--ease) both;
 }
-.hint.is-gone { opacity: 0; }
 @keyframes hint-in { from { opacity: 0; } }
+
+/* ---------- project panels ---------- */
+
+/* The stage shares the cube's perspective (set per frame, see stage.ts), so a rig's panels sit in
+   the cube: the screenshots deep in the bore, the text nearer on either side, turned inward. */
+.stage {
+  position: absolute; inset: 0; pointer-events: none;
+  perspective: var(--stage-p, 700px); perspective-origin: var(--stage-cx, 50%) var(--stage-cy, 50%);
+}
+.rig {
+  position: absolute; inset: var(--rig-top, 0) 0 var(--rig-bottom, 0); transform-style: preserve-3d;
+  display: grid; grid-template-columns: minmax(0, 350px) minmax(0, 1fr) minmax(0, 290px); align-items: center; column-gap: 40px;
+  padding-inline: max(var(--gut) + 44px, (100% - 1260px) / 2);
+  visibility: hidden; transition: visibility 0s 0.4s;
+}
+.rig.is-active { visibility: visible; transition-delay: 0s; }
+
+.panel, .shot { opacity: 0; transition: opacity 0.3s, transform 0.5s var(--ease); }
+.rig.is-active :is(.panel, .shot) { opacity: 1; pointer-events: auto; transition: opacity 0.6s var(--wait), transform 1.2s var(--ease) var(--wait); }
+.panel--about { --wait: 0.7s; transform-origin: 0 50%; transform: translateZ(-80px) rotateY(30deg); }
+.panel--facts { --wait: 0.85s; transform-origin: 100% 50%; transform: translateZ(-80px) rotateY(-30deg); }
+.rig.is-active .panel--about { transform: translateZ(30px) rotateY(6deg); }
+.rig.is-active .panel--facts { transform: translateZ(30px) rotateY(-6deg); }
+
+.panel {
+  position: relative; padding: 22px 24px 24px; border-radius: var(--radius); text-wrap: pretty;
+  background: #18181b; border: 1px solid var(--card-border-hover); box-shadow: var(--shadow-lift);
+}
+.panel__close { position: absolute; top: 12px; right: 12px; width: 32px; height: 32px; border-radius: 10px; }
+.panel__close svg { width: 12px; height: 12px; }
+.panel__meta { font-size: 11px; letter-spacing: 0.06em; color: var(--muted); }
+.panel__name { margin-top: 10px; font: 500 30px/1.05 var(--sans); letter-spacing: -0.035em; text-transform: none; color: var(--ink); }
+.panel__tagline { margin-top: 10px; font-size: 15px; line-height: 1.35; }
+.panel__summary { margin-top: 12px; font-size: 13.5px; line-height: 1.55; color: var(--soft); }
+.panel__links { margin-top: 18px; display: flex; gap: 8px; font-size: 13px; }
+.panel__link { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--card-border-hover); transition: border-color 0.2s, background-color 0.2s; }
+.panel__link::after { content: ' ↗'; color: var(--accent-ink); }
+.panel__link:hover { border-color: rgba(255, 255, 255, 0.28); background: rgba(255, 255, 255, 0.05); }
+.panel__highlights { display: grid; gap: 12px; font-size: 13.5px; line-height: 1.4; }
+.panel__highlights li { position: relative; padding-left: 16px; }
+.panel__highlights li::before { content: ''; position: absolute; left: 0; top: 0.5em; width: 5px; height: 5px; background: var(--accent-ink); }
+.panel__stack { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--soft); }
+.panel__stack li { padding: 4px 8px; border-radius: 6px; border: 1px solid var(--card-border-hover); background: rgba(255, 255, 255, 0.04); }
+
+/* Screenshots are buttons: a click brings one forward out of the bore to read it. */
+.rig__shots { position: relative; display: grid; place-items: center; transform-style: preserve-3d; }
+.shot {
+  --wait: 0.6s; display: block; max-width: 100%; padding: 0; overflow: hidden; cursor: zoom-in;
+  border-radius: 12px; border: 1px solid var(--card-border-hover); background: var(--bg-deep); box-shadow: var(--shadow-lift);
+  transform: translateZ(-340px);
+}
+.shot img { max-width: 100%; width: auto; height: auto; max-height: min(430px, 48svh); }
+.rig.is-active .shot { transform: translateZ(-110px); }
+/* A second screenshot overlaps the corner of the first, nearer the viewer. */
+.shot + .shot { --wait: 0.95s; position: absolute; right: 5%; bottom: -16%; width: 40%; }
+.shot + .shot img { width: 100%; max-height: none; }
+.rig.is-active .shot + .shot { transform: translateZ(30px); }
+.rig.is-active .shot.is-zoomed { transform: translateZ(210px); cursor: zoom-out; transition-delay: 0s; transition-duration: 0.25s, 0.6s; }
+.rig.is-active .shot + .shot.is-zoomed { transform: translate(-30%, -40%) translateZ(260px) scale(1.6); }
+
+@media (max-width: 1100px) {
+  /* Narrower: the text on the left, the screenshots over the facts on the right. */
+  .rig { grid-template-columns: minmax(0, 330px) minmax(0, 1fr); align-content: center; gap: 28px 32px; padding-inline: calc(var(--gut) + 28px); }
+  .panel--about { grid-row: 1 / 3; }
+  .panel--facts { justify-self: end; max-width: 300px; }
+  .shot img { max-height: min(300px, 34svh); }
+  .shot + .shot { right: 0; bottom: -8%; width: 34%; }
+}
+
+/* Flat: no cube to sit in (no WebGL) or no room to (narrow screens), so a rig is a plain card. */
+.stage--flat { inset: 104px var(--gut) auto; perspective: none; }
+.stage--flat .rig { position: static; display: none; padding: 0; gap: 12px; }
+.stage--flat .rig.is-active { display: grid; }
+.stage--flat .rig :is(.panel, .shot) { transform: none !important; }
+.stage--flat .shot { cursor: default; }
+
+@media (max-width: 720px) {
+  .stage, .stage--flat { position: static; padding: 0 var(--gut) 16px; }
+  .rig, .stage--flat .rig { grid-template-columns: minmax(0, 1fr); }
+  .panel--about { grid-row: auto; }
+  .panel--facts { justify-self: stretch; max-width: none; }
+  .rig__shots { order: 1; gap: 12px; } /* after the facts, which belong with the summary */
+  .shot img { max-height: 420px; }
+  .shot + .shot { position: static; width: auto; }
+  .shot + .shot img { width: auto; max-height: 420px; }
+  .hero.is-touring .hero__inner { display: none; }
+}
 
 @media (max-width: 720px) {
   /* Stacked: the cube gets its own block at the top and the cards follow, so they never cover it. */
@@ -189,32 +308,14 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
   .hero__inner { height: auto; flex-direction: column; align-items: stretch; justify-content: flex-end; gap: 12px; padding-bottom: 16px; }
   .id-card, .sim-card { flex: none; width: 100%; }
   .id-card { padding: 22px 22px 18px; }
+  .id-card__facts { flex-wrap: wrap; gap: 12px 28px; }
+  /* At a project its card follows the cube, so the cube takes less of the screen. */
+  .hero__canvas { transition: height 0.6s var(--ease); }
+  .hero.is-touring .hero__canvas { height: 44svh; min-height: 300px; }
   .hint { display: none; }
 }
 
-/* ---------- work ---------- */
-
-.section { padding: 120px 0; }
-@media (max-width: 639px) { .section { padding: 88px 0; } }
-
 h2 { font-size: 12px; font-family: var(--mono); font-weight: 400; color: var(--faint); letter-spacing: 0.08em; text-transform: uppercase; }
-
-.work { margin-top: 20px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.work-card {
-  display: grid; grid-template-rows: auto 1fr auto auto; gap: 10px; min-height: 300px; padding: 24px;
-  transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease), border-color 0.3s;
-}
-.work-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); border-color: var(--card-border-hover); }
-.work-card__index { font-size: 12px; color: var(--faint); transition: color 0.2s; }
-.work-card:hover .work-card__index { color: var(--accent-ink); }
-.work-card__title { align-self: end; font-size: clamp(26px, 2.4vw, 34px); line-height: 1.05; font-weight: 500; letter-spacing: -0.03em; }
-.work-card__desc { color: var(--muted); min-height: 3em; }
-.work-card__meta { font-size: 12px; color: var(--faint); padding-top: 12px; border-top: 1px solid var(--line); }
-
-@media (max-width: 860px) {
-  .work { grid-template-columns: 1fr; }
-  .work-card { min-height: 200px; }
-}
 
 /* ---------- contact ---------- */
 
@@ -229,7 +330,7 @@ h2 { font-size: 12px; font-family: var(--mono); font-weight: 400; color: var(--f
 }
 .contact-card__email:hover { background-size: 100% 3px; }
 .contact-card__row { display: flex; align-items: center; gap: 24px; padding-top: 20px; border-top: 1px solid var(--line); }
-.contact-card__row img { width: 36px; height: 36px; }
+.contact-card__row img { width: 36px; height: auto; }
 .contact-card__links { display: flex; gap: 8px; margin-left: auto; font-size: 14px; }
 .contact-card__links a { padding: 10px 16px; border-radius: 999px; border: 1px solid var(--card-border); color: var(--muted); transition: border-color 0.2s, color 0.2s, transform 0.2s var(--ease); }
 .contact-card__links a:hover { border-color: var(--card-border-hover); color: var(--ink); transform: translateY(-1px); }
@@ -245,5 +346,6 @@ h2 { font-size: 12px; font-family: var(--mono); font-weight: 400; color: var(--f
 
 @media (prefers-reduced-motion: reduce) {
   [data-enter], .hint { animation: none; }
+  .panel, .shot { transform: none !important; }
   *, *::before, *::after { transition-duration: 0.01ms !important; }
 }

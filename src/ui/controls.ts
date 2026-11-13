@@ -21,7 +21,8 @@ export function bindChoice<T extends string>(fieldsetId: string, initial: T | nu
   return select;
 }
 
-/** Wires the denoise switch and its neighbour count. Calls back with 0 when it's off. */
+/** Wires the denoise switch and its neighbour count, starting from the page's settings. Calls
+ * back with 0 when it's off. */
 export function bindFilter(onChange: (k: number) => void): void {
   const on = byId<HTMLInputElement>('filter-on');
   const k = byId<HTMLInputElement>('filter-k');
@@ -33,4 +34,17 @@ export function bindFilter(onChange: (k: number) => void): void {
   };
   on.addEventListener('change', emit);
   k.addEventListener('input', emit);
+  emit();
+}
+
+/** Wires a button that shows and hides a panel. */
+export function bindDisclosure(buttonId: string, label: string): void {
+  const button = byId<HTMLButtonElement>(buttonId);
+  const panel = byId<HTMLElement>(button.getAttribute('aria-controls')!);
+  button.addEventListener('click', () => {
+    const open = panel.hidden;
+    panel.hidden = !open;
+    button.setAttribute('aria-expanded', String(open));
+    button.setAttribute('aria-label', `${open ? 'Hide' : 'Show'} ${label}`);
+  });
 }
