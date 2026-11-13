@@ -9,12 +9,14 @@
     "contributions": "node scripts/contributions.mjs",
     "preview": "vite preview",
     "test": "vitest run",
-    "bake": "node scripts/bake.mjs"
+    "bake": "node scripts/bake.mjs",
+    "deploy": "npm run build && wrangler deploy"
   },
   "devDependencies": {
     "typescript": "5.9",
     "vite": "^8.3.8",
-    "vitest": "^4.1.12"
+    "vitest": "^4.1.12",
+    "wrangler": "^4.161.0"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",
