@@ -34,6 +34,11 @@
       <canvas class="hero__canvas" aria-label="A cube of voxels. Each voxel is a triple pendulum, drawn when its motion is chaotic enough. Drag to rotate, shift-drag to move the volume, click for the next one."></canvas>
       <img class="hero__poster" src="/poster.jpg" alt="" hidden />
       <div class="stage" id="stage"></div>
+      <div class="loader" id="loader" role="progressbar" aria-label="Loading the cube" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div class="loader__row"><span>Loading the cube</span><span class="loader__value mono">0%</span></div>
+        <div class="loader__track"><div class="loader__fill"></div></div>
+        <p class="loader__detail mono">connecting</p>
+      </div>
 
       <div class="wrap hero__inner">
         <div class="card id-card" data-enter>

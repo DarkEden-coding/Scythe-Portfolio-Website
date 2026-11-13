@@ -214,6 +214,27 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 }
 @keyframes hint-in { from { opacity: 0; } }
 
+/* ---------- load bar ---------- */
+
+.loader {
+  position: absolute; left: 50%; top: 44%; z-index: 2; width: min(300px, 100% - 2 * var(--gut));
+  transform: translate(-50%, -50%); padding: 14px 16px 12px; border-radius: 14px; pointer-events: none;
+  background: var(--card-glass); border: 1px solid var(--card-border); box-shadow: var(--shadow);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  transition: opacity 0.6s var(--ease) 0.15s, transform 0.6s var(--ease) 0.15s;
+  animation: enter 0.8s var(--ease) both;
+}
+.loader.is-done { opacity: 0; transform: translate(-50%, calc(-50% - 8px)); }
+.loader__row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
+.loader__value { font-size: 12px; color: var(--muted); }
+.loader__track { margin-top: 10px; height: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.08); overflow: hidden; }
+.loader__fill {
+  height: 100%; background: var(--accent-ink); box-shadow: 0 0 12px var(--accent);
+  transform: scaleX(0); transform-origin: left; transition: transform 0.25s linear;
+}
+.loader__detail { margin-top: 8px; font-size: 11px; color: var(--faint); }
+.loader.is-failed .loader__fill { background: var(--faint); box-shadow: none; }
+
 /* ---------- project panels ---------- */
 
 /* The stage shares the cube's perspective (set per frame, see stage.ts), so a rig's panels sit in

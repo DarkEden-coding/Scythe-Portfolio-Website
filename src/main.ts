@@ -13,6 +13,7 @@ import { ProjectStage } from './projects/stage.ts';
 import { STATIONS, type Station } from './projects/stations.ts';
 import { buildTabs } from './projects/tabs.ts';
 import { bindChoice, bindDisclosure, bindFilter, bindThreshold } from './ui/controls.ts';
+import { Loader } from './ui/loader.ts';
 
 // Playback lowers the threshold, so the cube grows from its most chaotic voxels outward, holds,
 // raises it again and moves to the next preset.
@@ -78,8 +79,11 @@ const view = CubeView.create(canvas, {
   glow: 1.5, base: '#ecebe6', accent: PLAIN_GLOW, colorBy, ramp: PALETTES[palette].ramp, sun: lighting === 'sun', edgeColor: [1, 1, 1, 0.16],
 });
 
+const loader = new Loader($('#loader'));
 if (!view) {
   // No WebGL2: show the still and drop the controls that drive it.
+  loader.active = false;
+  $('#loader').hidden = true;
   canvas.hidden = true;
   $('.hero__poster').hidden = false;
   $('.sim-card').hidden = true;
@@ -91,11 +95,11 @@ if (!view) {
 // Unpacked cubes by URL. Holds the one on screen and the next, so cycling doesn't wait.
 const cubes = new Map<string, Promise<Cube>>();
 
-function fetchCube(preset: number, q: Quality): Promise<Cube> {
+function fetchCube(preset: number, q: Quality, onProgress?: (loaded: number, total: number) => void): Promise<Cube> {
   const url = cubeUrl(preset, GRID[q]);
   let cube = cubes.get(url);
   if (!cube) {
-    cube = unpackCube(url, GRID[q]);
+    cube = unpackCube(url, GRID[q], onProgress);
     cube.catch(() => cubes.delete(url));
     cubes.set(url, cube);
   }
@@ -114,8 +118,10 @@ async function show(preset: number, q: Quality, keep?: number): Promise<void> {
   const token = ++loadToken;
   wantedPreset = preset;
   loading = true;
+  // The load bar is for the first cube, while there's nothing on screen yet.
+  const first = loader.active;
   try {
-    const cube = await fetchCube(preset, q);
+    const cube = await fetchCube(preset, q, first ? (loaded, total) => loader.download(loaded, total) : undefined);
     if (token !== loadToken) return;
     await view.load(cube.bytes, GRID[q]);
     if (token !== loadToken) return;
@@ -123,11 +129,13 @@ async function show(preset: number, q: Quality, keep?: number): Promise<void> {
     top = cube.top + 1;
     countOut.textContent = (GRID[q] ** 3).toLocaleString('en-US');
     resetFrameStats(); // loading stalls a few frames; don't count that as slow drawing
+    if (first) loader.done();
     seek(reducedMotion ? target() : keep ?? top);
   } catch (err) {
     if (token !== loadToken) return;
     console.error(err);
     statusOut.textContent = 'could not load';
+    if (first) loader.fail();
     return;
   } finally {
     if (token === loadToken) loading = false;
@@ -535,6 +543,10 @@ function frame(now: number): void {
       if (flight.done) flight = null;
     }
     advance(dt);
+    if (loader.active) {
+      const onGpu = view.loadProgress;
+      if (onGpu !== null) loader.upload(onGpu);
+    }
     drift(dt);
     draw();
     placeStage();
