@@ -27,6 +27,9 @@
         <a href="#projects">Projects</a>
         <a href="#contact">Contact</a>
       </nav>
+      <a class="icon-btn nav__linkedin" href="https://www.linkedin.com/in/elliot-scully-79028344b" aria-label="LinkedIn" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.45 20.45h-3.56v-5.57c0-1.33-.03-3.04-1.85-3.04-1.86 0-2.14 1.45-2.14 2.94v5.67H9.35V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.46v6.28zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zM7.12 20.45H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.73v20.54C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.73V1.73C24 .77 23.2 0 22.22 0z"/></svg>
+      </a>
     </div>
   </header>
 
@@ -43,8 +46,10 @@
 
       <div class="wrap hero__inner">
         <div class="card id-card" data-enter>
-          <h1>Elliot Scully</h1>
-          <p class="id-card__sub">Currently at Speechify. UMich student working in vision, machine learning and tools.</p>
+          <div class="id-card__head">
+            <h1>Elliot Scully</h1>
+            <p class="id-card__sub">Currently at <a href="https://speechify.com">Speechify</a>. UMich student working in vision, machine learning and tools.</p>
+          </div>
           <dl class="id-card__facts mono">
             <div><dt>GitHub</dt><dd><a href="https://github.com/DarkEden-coding">github.com/DarkEden-coding</a></dd></div>
             <div><dt>Based in</dt><dd>Ann Arbor, Michigan</dd></div>
@@ -145,17 +150,23 @@
               </label>
             </div>
 
-            <label class="switch">
-              <input type="checkbox" id="temporal-aa" role="switch" checked />
-              <span class="switch__track" aria-hidden="true"></span>
-              <span>Temporal AA</span>
-            </label>
-
-            <label class="switch">
-              <input type="checkbox" id="show-fps" role="switch" />
-              <span class="switch__track" aria-hidden="true"></span>
-              <span>Show FPS</span>
-            </label>
+            <div class="switches">
+              <label class="switch">
+                <input type="checkbox" id="glow" role="switch" />
+                <span class="switch__track" aria-hidden="true"></span>
+                <span>Glow</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="temporal-aa" role="switch" checked />
+                <span class="switch__track" aria-hidden="true"></span>
+                <span>Temporal AA</span>
+              </label>
+              <label class="switch">
+                <input type="checkbox" id="show-fps" role="switch" />
+                <span class="switch__track" aria-hidden="true"></span>
+                <span>Show FPS</span>
+              </label>
+            </div>
           </div>
         </aside>
       </div>

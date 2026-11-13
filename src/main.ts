@@ -22,6 +22,7 @@ import { Loader } from './ui/loader.ts';
 const SWEEP_RATE = 8; // chaos levels per real second
 const HOLD_FOR = 8; // real seconds the finished cube stays up; dragging restarts the count
 const RISE_FOR = 1.8; // real seconds to clear it before the next preset
+const SETTLE_OVER = 8; // chaos levels before the target over which a sweep slows to a stop
 const FLOOR = 1.6; // default threshold the sweep stops at, e-folds per second
 const CENTER: [number, number, number] = [0.5, 0.5, 0.5]; // default move, as a fraction of the volume
 const DRIFT = [0.016, 0.01, 0.0066]; // idle move, fractions of the volume per real second
@@ -78,7 +79,7 @@ const recenterBtn = $<HTMLButtonElement>('#sim-recenter');
 type DragMode = 'rotate' | 'move';
 
 const view = CubeView.create(canvas, {
-  glow: 1.5, base: '#ecebe6', accent: PLAIN_GLOW, colorBy, ramp: PALETTES[palette].ramp, sun: lighting === 'sun', edgeColor: [1, 1, 1, 0.16],
+  glow: false, glowFor: 0.45, base: '#ecebe6', accent: PLAIN_GLOW, colorBy, ramp: PALETTES[palette].ramp, sun: lighting === 'sun', edgeColor: [1, 1, 1, 0.16],
 });
 
 const loader = new Loader($('#loader'));
@@ -133,6 +134,7 @@ async function show(preset: number, q: Quality, keep?: number): Promise<void> {
     resetFrameStats(); // loading stalls a few frames; don't count that as slow drawing
     if (first) loader.done();
     seek(reducedMotion ? target() : keep ?? top);
+    view.trail.reset(threshold); // a new cube isn't new voxels
   } catch (err) {
     if (token !== loadToken) return;
     console.error(err);
@@ -173,7 +175,6 @@ function seek(level: number): void {
   if (!view) return;
   threshold = level;
   phase = level === target() ? { name: 'hold', left: HOLD_FOR } : { name: 'sweep' };
-  view.heat = level === target() ? 0 : 1;
 }
 
 /** Clears the cube, then shows another preset. */
@@ -198,19 +199,19 @@ function advance(dt: number): void {
   }
   if (phase.name === 'sweep') {
     // Down to the target as the cube grows; up to it when a station shows less than is on screen.
-    const reach = dt * (projectIndex === null ? SWEEP_RATE : TOUR_SWEEP_RATE);
+    // Full speed at first, then an even deceleration over the last SETTLE_OVER levels.
+    const rate = projectIndex === null ? SWEEP_RATE : TOUR_SWEEP_RATE;
     const goal = target();
-    threshold += Math.min(reach, Math.max(-reach, goal - threshold));
-    view.heat = 1;
+    const left = Math.abs(goal - threshold);
+    const speed = Math.min(rate, rate * Math.sqrt(left / SETTLE_OVER));
+    threshold = speed * dt >= left ? goal : threshold + Math.sign(goal - threshold) * speed * dt;
     if (threshold === goal) phase = { name: 'hold', left: HOLD_FOR };
   } else if (phase.name === 'hold') {
-    view.heat = Math.max(0, view.heat - dt * 3); // the front cools in a third of a second
     if (!reducedMotion && projectIndex === null && (phase.left -= dt) <= 0) riseThenNext();
   } else {
     phase.left -= dt;
-    const k = Math.max(0, phase.left / phase.over);
-    threshold = top - (top - phase.from) * k * k; // slow start, fast finish
-    view.heat = 0;
+    const k = 1 - Math.max(0, phase.left / phase.over); // 0 to 1 over the rise
+    threshold = phase.from + (top - phase.from) * k * k; // slow start, fast finish
     if (phase.left <= 0) show(phase.next, quality);
   }
 }
@@ -264,6 +265,15 @@ bindChoice<Lighting>('lighting', lighting, l => {
 });
 
 bindFilter(k => view?.setFilter(k));
+
+// Whether voxels glow as they appear.
+const glowSwitch = $<HTMLInputElement>('#glow');
+glowSwitch.checked = localStorage.getItem('glow') === 'true';
+if (view) view.opts.glow = glowSwitch.checked;
+glowSwitch.addEventListener('change', () => {
+  if (view) view.opts.glow = glowSwitch.checked;
+  localStorage.setItem('glow', String(glowSwitch.checked));
+});
 
 // The frame rate, in the readout, when switched on in the settings.
 const fpsWrap = $('#sim-fps-wrap');
@@ -417,10 +427,11 @@ let renderScale = resolution === 'auto' ? 1 : Number(resolution) / 100;
 // another full trace. Only the finished (or paused) cube gets them: while the threshold sweeps,
 // voxels change every frame anyway, and few showing makes rays long.
 //
-// The still cube also accumulates its rays over frames (Temporal AA, see accumulate.ts), at about
-// a tenth more than the cost of its rays. Measured against a 64-ray image, one ray accumulated comes
+// The cube also accumulates its rays over frames (Temporal AA, see accumulate.ts), at about a
+// tenth more than the cost of its rays. Measured against a 64-ray image, one ray accumulated comes
 // out about as close as four rays without it, and two accumulated a little closer, so Auto starts
-// there.
+// there. While the threshold sweeps or the camera flies to a station it still accumulates, over a
+// short history, so the single ray's shadow noise averages out instead of crawling.
 const temporalSwitch = $<HTMLInputElement>('#temporal-aa');
 temporalSwitch.checked = localStorage.getItem('temporalAA') !== 'false';
 temporalSwitch.disabled = !view?.canAccumulate;
@@ -507,7 +518,8 @@ function draw(): void {
   view.threshold = threshold;
   const still = (paused || phase.name === 'hold') && !flight;
   view.samples = still ? samplesCap : 1;
-  view.accumulate = still && temporal();
+  view.accumulate = temporal();
+  view.settled = still;
   view.offset = move.map(m => m * view.size) as typeof move;
   view.carve = [...boreAxis, BORE * tour];
   view.draw(camera.basis(), w, h, shift, focal);
@@ -551,6 +563,7 @@ function frame(now: number): void {
       if (flight.done) flight = null;
     }
     advance(dt);
+    view.trail.record(threshold, dt);
     if (loader.active) {
       const onGpu = view.loadProgress;
       if (onGpu !== null) loader.upload(onGpu);

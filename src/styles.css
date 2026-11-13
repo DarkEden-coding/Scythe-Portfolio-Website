@@ -79,6 +79,8 @@ button, input { font: inherit; color: inherit; }
 .nav nav { display: flex; gap: 4px; font-size: 14px; }
 .nav nav a { padding: 10px 16px; border-radius: 999px; color: var(--muted); transition: background-color 0.2s, color 0.2s; }
 .nav nav a:hover { background: rgba(255, 255, 255, 0.06); color: var(--ink); }
+.nav__linkedin { border-radius: 999px; }
+.nav__linkedin svg { width: 16px; height: 16px; }
 
 /* Project tabs: a marker slides under the open one. */
 .tabs { position: relative; display: flex; align-items: center; gap: 2px; min-width: 0; font-size: 13px; }
@@ -147,15 +149,21 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
   display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
   padding-bottom: 24px; pointer-events: none;
 }
+/* The cards sit nearer the screen edges than the page content does. */
+.hero__inner.wrap { width: calc(100% - 2 * 16px); max-width: none; }
 .hero__inner > * { pointer-events: auto; transition: opacity 0.45s, transform 0.6s var(--ease), visibility 0.45s; }
 /* At a project the cards step aside for its panels. */
 .hero.is-touring .hero__inner > * { opacity: 0; transform: translateY(20px); visibility: hidden; pointer-events: none; }
 .hero.is-touring .hint { opacity: 0; }
 
-.id-card { padding: 28px 32px 24px; flex: 0 1 460px; min-width: 0; }
+.id-card { padding: 28px 32px 24px; flex: 0 1 auto; min-width: 0; }
+.id-card__head { display: flex; align-items: center; gap: 20px 36px; }
+.id-card__head h1 { flex: none; width: min-content; }
 /* Same monospace as the contact email; sized so the 12 characters stay on one line in the card. */
 .id-card h1 { font-family: var(--mono); font-size: clamp(34px, 4vw, 56px); line-height: 0.95; font-weight: 500; letter-spacing: -0.04em; margin-left: -0.04em; }
-.id-card__sub { margin-top: 14px; color: var(--muted); font-size: 15px; }
+.id-card__sub { max-width: 240px; color: var(--muted); font-size: 15px; }
+.id-card__sub a { color: var(--soft); text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px; transition: color 0.2s; }
+.id-card__sub a:hover { color: var(--ink); }
 .id-card__facts { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); display: flex; gap: 32px; font-size: 12px; }
 .id-card__facts dt { color: var(--faint); }
 .id-card__facts a:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -201,6 +209,7 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .drag .seg { flex: 1; }
 
 .filter { display: flex; align-items: center; gap: 14px; }
+.switches { display: flex; flex-wrap: wrap; gap: 0 24px; }
 .switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; position: relative; flex: none; min-height: 40px; }
 .switch input { position: absolute; opacity: 0; width: 34px; height: 20px; margin: 0; cursor: pointer; }
 .switch__track { width: 34px; height: 20px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); position: relative; transition: background-color 0.2s; }
@@ -365,6 +374,9 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
   .hero__inner { height: auto; flex-direction: column; align-items: stretch; justify-content: flex-end; gap: 12px; padding-bottom: 16px; }
   .id-card, .sim-card { flex: none; width: 100%; }
   .id-card { padding: 22px 22px 18px; }
+  .id-card__head { flex-direction: column; align-items: flex-start; }
+  .id-card__head h1 { width: auto; }
+  .id-card__sub { max-width: none; }
   .id-card__facts { flex-wrap: wrap; gap: 12px 28px; }
   /* At a project its card follows the cube, so the cube takes less of the screen. */
   .hero__canvas { transition: height 0.6s var(--ease); }

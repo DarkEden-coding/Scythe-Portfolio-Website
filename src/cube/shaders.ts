@@ -7,9 +7,12 @@
 //  BRICKS_FS  per 4³ block of the volume, its highest level, so rays skip empty blocks
 //  RENDER_FS  ray-casts the grid and draws visible voxels as lit cubes, studio-lit or sunlit with shadows;
 //             a bore can be cut into them, which is where the project panels float
+//  PROBE_EDGES_FS marks the edges in the probe pass's image and fills in the rest (see RENDER_FS main)
 //  RESOLVE_FS blends a frame's rays into the reprojected earlier frames' (see accumulate.ts)
 //  PRESENT_FS copies that blend to the screen
 //  EDGES_*    draws the cube's 12 outline edges
+
+import { TRAIL_SAMPLES } from './thresholdTrail.ts';
 
 // Full-screen triangle, no vertex buffer needed.
 export const FULLSCREEN_VS = /* glsl */ `#version 300 es
@@ -97,6 +100,7 @@ export const RENDER_FS = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
 precision highp usampler3D;
+precision highp usampler2D;
 
 uniform usampler3D uChaos;  // chaos level per voxel
 uniform usampler3D uPass;   // highest threshold each voxel shows at, in 256ths, order included (see FILTER_FS)
@@ -112,8 +116,8 @@ uniform vec3 uRight;
 uniform vec3 uUp;
 uniform vec3 uForward;
 uniform float uThreshold;   // voxels below this level (plus their sub-level, see order) are hidden
-uniform float uHeat;        // 0..1, how strongly voxels near the threshold glow
-uniform float uGlow;        // levels above the threshold that still glow
+uniform bool uGlow;         // whether new voxels glow
+uniform float uTrail[${TRAIL_SAMPLES}]; // the threshold now, then evenly spaced back to when a new voxel's glow is gone (see thresholdTrail.ts)
 uniform float uPixelAngle;  // radians per pixel, to fade seams when voxels get small
 uniform vec3 uBase;
 uniform vec3 uAccent;
@@ -124,10 +128,14 @@ uniform vec3 uSunDir;       // towards the sun
 uniform int uSamples;       // rays per pixel: 1, 2 or 4
 uniform vec4 uCarve;        // a bore cut into the voxels: xyz its axis, from the centre out; w its radius in box units (0: none)
 uniform vec2 uJitter;       // where in the pixel the ray goes when accumulating over frames (see RESOLVE_FS)
-uniform float uSunTurn;     // turns each frame's points on the sun disk when accumulating
+uniform int uSunFrame;      // counts accumulated frames, so each one aims its shadow rays at new points on the sun disk
+uniform int uMode;          // 0: uSamples rays per pixel; 1: probe, one ray; 2: refine, uSamples more (see main)
+uniform sampler2D uProbeColor;
+uniform sampler2D uProbeDepth;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDepth; // distance to the first surface drawn, -1 for none; for reprojection
+layout(location = 2) out uint fragFaces;  // the probe's faces id (see faces)
 
 // Set by trace(): the distance along the ray to the first surface it drew, or -1.
 float firstDepth = -1.0;
@@ -159,6 +167,19 @@ float margin(ivec3 cell) {
   return uCarve.w > 0.0 ? m - carved(cell) * (uLevels + 1.0) : m;
 }
 bool shows(ivec3 cell) { return margin(cell) >= 0.0; }
+
+// How long ago a showing voxel appeared, 0..1 of the trail: the first trail point it wasn't showing
+// at, interpolated. 1 when it showed the whole trail.
+float age(ivec3 cell) {
+  float shownAt = margin(cell) + uThreshold;
+  float before = shownAt - uTrail[0];
+  for (int i = 1; i < ${TRAIL_SAMPLES}; i++) {
+    float m = shownAt - uTrail[i];
+    if (m < 0.0) return (float(i - 1) + before / (before - m)) / ${TRAIL_SAMPLES - 1}.0;
+    before = m;
+  }
+  return 1.0;
+}
 
 // Whether the bore removes every cell of a brick, so a ray can skip it like an empty one. The
 // distance from the axis changes no faster than position, so it is enough that the brick's centre
@@ -223,13 +244,14 @@ float cornerAO(float side1, float side2, float corner) {
   return (3.0 - side1 - side2 - max(corner, side1 * side2)) / 3.0;
 }
 
-float faceAO(ivec3 front, ivec3 u, ivec3 v, vec2 f) {
+// The occlusion at a face's four corners: (-u -v), (+u -v), (-u +v), (+u +v).
+vec4 faceCorners(ivec3 front, ivec3 u, ivec3 v) {
   float pu = solid(front + u), nu = solid(front - u), pv = solid(front + v), nv = solid(front - v);
-  float a00 = cornerAO(nu, nv, solid(front - u - v));
-  float a10 = cornerAO(pu, nv, solid(front + u - v));
-  float a01 = cornerAO(nu, pv, solid(front - u + v));
-  float a11 = cornerAO(pu, pv, solid(front + u + v));
-  return mix(mix(a00, a10, f.x), mix(a01, a11, f.x), f.y);
+  return vec4(
+    cornerAO(nu, nv, solid(front - u - v)),
+    cornerAO(pu, nv, solid(front + u - v)),
+    cornerAO(nu, pv, solid(front - u + v)),
+    cornerAO(pu, pv, solid(front + u + v)));
 }
 
 vec3 albedo(ivec3 cell, float level) {
@@ -353,7 +375,25 @@ bool shadingSheet = false;
 // each is shared by a pair (reset in main()). Each aims at its own point on the sun disk.
 float sharedSunlight = -1.0;
 
+// The last face shaded. A pixel's rays mostly land on the same face, so the colour and corner
+// occlusion, which take dozens of voxel reads, are worked out once and shared; each ray only adds
+// what changes across the face.
+bool faceCached = false;
+ivec3 cachedCell;
+vec3 cachedNormal;
+bool cachedSheet;
+vec3 cachedSurface;
+float cachedHeat;
+vec4 cachedCorners;
+
+// Which voxel faces a ray shaded, hashed in order. Neighbouring pixels with the same id show the
+// same faces, so between them the image is smooth; a different id means an edge between them.
+uint faces;
+
 vec3 shade(Ray r, float dist) {
+  uvec3 at = uvec3(r.cell + 1); // cells start at -1
+  uint face = at.x * 73856093u ^ at.y * 19349663u ^ at.z * 83492791u ^ uint(dot(r.normal + 1.0, vec3(1.0, 3.0, 9.0))) * 2654435761u;
+  faces = (faces ^ face ^ (shadingSheet ? 0x9e3779b9u : 0u)) * 16777619u;
   vec3 hit = r.p + r.rd * r.t;
   ivec3 nI = ivec3(r.normal);
   ivec3 u = abs(nI.x) == 1 ? ivec3(0, 1, 0) : ivec3(1, 0, 0);
@@ -361,13 +401,23 @@ vec3 shade(Ray r, float dist) {
   if (abs(nI.y) == 1) { u = ivec3(1, 0, 0); v = ivec3(0, 0, 1); }
   vec3 fr = fract(hit);
   vec2 f = vec2(dot(fr, vec3(u)), dot(fr, vec3(v)));
-  float ao = shadingSheet ? 1.0 : faceAO(r.cell + nI, u, v, f);
 
-  // Voxels just above the threshold glow while it sweeps, so the growing front reads.
-  float level = chaos(r.cell);
-  float heat = uHeat * (1.0 - smoothstep(0.0, uGlow, margin(r.cell)));
-  vec3 hot = mix(vec3(1.0, 0.93, 0.86), uAccent, smoothstep(0.0, 0.12, 1.0 - heat));
-  vec3 surface = mix(albedo(r.cell, level), hot, 0.6 * heat);
+  if (!faceCached || r.cell != cachedCell || r.normal != cachedNormal || shadingSheet != cachedSheet) {
+    faceCached = true;
+    cachedCell = r.cell;
+    cachedNormal = r.normal;
+    cachedSheet = shadingSheet;
+    cachedCorners = shadingSheet ? vec4(1.0) : faceCorners(r.cell + nI, u, v);
+    // New voxels glow and cool over a fixed time from when each appeared, so the growing front
+    // reads and, once the threshold stops, the last of them go out one by one.
+    cachedHeat = uGlow ? 1.0 - smoothstep(0.0, 1.0, age(r.cell)) : 0.0;
+    vec3 hot = mix(vec3(1.0, 0.93, 0.86), uAccent, smoothstep(0.0, 0.12, 1.0 - cachedHeat));
+    cachedSurface = mix(albedo(r.cell, chaos(r.cell)), hot, 0.6 * cachedHeat);
+  }
+  vec4 c = cachedCorners;
+  float ao = mix(mix(c.x, c.y, f.x), mix(c.z, c.w, f.x), f.y);
+  float heat = cachedHeat;
+  vec3 surface = cachedSurface;
 
   vec3 col;
   if (uSun) {
@@ -395,6 +445,7 @@ vec3 shade(Ray r, float dist) {
 
 // One camera ray through a point on the screen, in pixels; premultiplied colour and coverage.
 vec4 trace(vec2 pixel, vec2 sunOffset) {
+  faces = 2166136261u;
   vec2 uv = (pixel * 2.0 - uResolution) / uResolution.y - uShift;
   vec3 rd = normalize(uForward * uFocal + uRight * uv.x + uUp * uv.y);
   vec3 ro = uEye;
@@ -487,34 +538,84 @@ const vec2 SAMPLES[7] = vec2[7](
   vec2(0.25, 0.25), vec2(-0.25, -0.25),
   vec2(0.125, 0.375), vec2(0.375, -0.125), vec2(-0.125, -0.375), vec2(-0.375, 0.125));
 
+// Interleaved gradient noise (Jimenez, 2014): 0..1 per pixel, laid out so that neighbouring pixels
+// differ as much as possible. A few pixels' worth of it averages out to flat, which white noise
+// takes far more to do.
+float gradientNoise(vec2 px) {
+  return fract(52.9829189 * fract(dot(px, vec2(0.06711056, 0.00583715))));
+}
+
+// The k-th of 16 points spread evenly over the unit disk (a Vogel spiral), turned by turn radians.
+vec2 diskPoint(int k, float turn) {
+  int i = k % 16;
+  float a = float(i) * 2.39996323 + turn; // the golden angle
+  return sqrt((float(i) + 0.5) / 16.0) * vec2(cos(a), sin(a));
+}
+
+// Extra rays only help where a pixel straddles an edge: where voxels are several pixels wide, most
+// pixels sit inside one face and every ray in them comes out the same. So with several rays the
+// cube can draw in passes: a probe casts one ray per pixel and notes the faces it shaded;
+// PROBE_EDGES_FS marks the pixels whose faces differ from a neighbour's in the stencil buffer and
+// copies the probe's colour to the rest; then the refine pass, stencilled to the marked pixels, casts the full
+// count there. (Doing the edge test in the refine pass itself saves little: the GPU runs pixels in
+// groups, and a group with one edge pixel in it waits for that pixel's rays.) Where voxels are
+// about a pixel wide, nearly every pixel is an edge, and the single pass (mode 0) is cheaper.
 void main() {
-  // Each ray also aims its shadow at its own point on the sun disk, turned per pixel so the
-  // softened edges don't band. Two rays or one cast a shadow ray each; four share them in pairs,
-  // so a pixel never casts more than two.
-  float turn = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) * 6.2831853 + uSunTurn;
-  mat2 spin = mat2(cos(turn), sin(turn), -sin(turn), cos(turn));
   vec4 sum = vec4(0.0);
-  for (int i = 0; i < uSamples; i++) {
-    if (uSamples < 4 || i % 2 == 0) sharedSunlight = -1.0;
-    vec2 offset = SAMPLES[uSamples - 1 + i];
-    sum += trace(gl_FragCoord.xy + uJitter + offset, spin * (uSamples == 1 ? vec2(0.5, 0.0) : offset * 2.0));
-    if (i == 0) fragDepth = firstDepth;
+  int rays = uMode == 1 ? 1 : uSamples;
+  int counted = rays;
+  if (uMode == 2) {
+    // The probe's ray counts as one more.
+    ivec2 px = ivec2(gl_FragCoord.xy);
+    sum = texelFetch(uProbeColor, px, 0);
+    fragDepth = texelFetch(uProbeDepth, px, 0).r;
+    counted++;
   }
-  fragColor = sum / float(uSamples);
+
+  // Each shadow ray aims at its own point on the sun disk, so shadow edges soften. Pixels start at
+  // different points of the spiral, turned differently, so the softening doesn't band, and each
+  // accumulated frame moves on to the next points. Two rays or one cast a shadow ray each; four
+  // share them in pairs. The refine pass's rays take the points after the probe's.
+  int first = int(gradientNoise(gl_FragCoord.xy) * 16.0) + uSunFrame * (uSamples + 1) + (uMode == 2 ? 1 : 0);
+  float turn = gradientNoise(gl_FragCoord.xy + vec2(47.0, 17.0)) * 6.2831853;
+  vec2 sunPoint = vec2(0.0);
+  int aimed = 0;
+  for (int i = 0; i < rays; i++) {
+    if (rays < 4 || i % 2 == 0) {
+      sharedSunlight = -1.0;
+      sunPoint = diskPoint(first + aimed++, turn);
+    }
+    vec2 offset = uMode == 1 ? vec2(0.0) : SAMPLES[rays - 1 + i];
+    sum += trace(gl_FragCoord.xy + uJitter + offset, sunPoint);
+    if (i == 0 && uMode != 2) {
+      fragDepth = firstDepth;
+      fragFaces = faces;
+    }
+  }
+  fragColor = sum / float(counted);
 }`;
 
 // Accumulating over frames: each frame casts its rays at different points in the pixel (and on the
 // sun disk) from the last, and this blends them into the history. The history is reprojected through
-// the first surface's distance, so it follows the camera, and clipped to the spread of this frame's
-// 3×3 neighbourhood (mean ± one standard deviation), so it can't keep colours that are no longer
-// there (no ghosting). The history is read with a Catmull-Rom filter: a bilinear read blurs a
-// little every frame the camera turns, and that adds up.
+// the first surface's distance, so it follows the camera, and clamped to the spread of this frame's
+// 3×3 neighbourhood (mean ± 1.25 standard deviations), so it can't keep colours that are no longer
+// there (no ghosting). The clamp works in YCoCg, where that spread hugs the colours actually present
+// far closer than in RGB. (Clipping along the line to the mean instead pulls the history nearly onto
+// the mean wherever one channel barely varies, alpha on any solid surface, which blurs the image.)
+// The history is read with a Catmull-Rom filter: a bilinear read blurs a little every frame the
+// camera turns, and that adds up.
+//
+// Where the image holds still, the history averages over many frames; where it moves on screen or
+// the cube is changing (the threshold sweeping), over a few, so lighting that turns with the camera
+// and voxels coming and going don't trail. Samples are weighted down by brightness when blended, so
+// one bright ray doesn't flash.
 export const RESOLVE_FS = /* glsl */ `#version 300 es
 precision highp float;
 uniform sampler2D uCurrent;  // this frame, premultiplied
 uniform sampler2D uDepth;    // this frame's first-surface distances
 uniform sampler2D uHistory;  // the blend so far, premultiplied
-uniform float uBlend;        // weight of this frame
+uniform float uBlend;        // weight of this frame while the history is still short: 1 / frames so far
+uniform bool uSettled;       // the cube isn't changing, so still parts can keep a long history
 uniform vec2 uResolution;
 uniform vec2 uShift;
 uniform float uFocal;
@@ -548,6 +649,17 @@ vec4 catmullRom(sampler2D tex, vec2 uv, vec2 size) {
   return max(c / weight, 0.0);
 }
 
+const float STILL_BLEND = 1.0 / 16.0;  // a still pixel's history averages about 16 frames
+const float MOVING_BLEND = 1.0 / 4.0;  // and a moving one's about 4
+const float SPREAD = 1.25;             // standard deviations of the neighbourhood the history may sit within
+
+vec4 toYCoCg(vec4 c) {
+  return vec4(dot(c.rgb, vec3(0.25, 0.5, 0.25)), dot(c.rgb, vec3(0.5, 0.0, -0.5)), dot(c.rgb, vec3(-0.25, 0.5, -0.25)), c.a);
+}
+vec4 fromYCoCg(vec4 c) {
+  return vec4(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z, c.a);
+}
+
 void main() {
   ivec2 px = ivec2(gl_FragCoord.xy);
   ivec2 last = ivec2(uResolution) - 1;
@@ -555,13 +667,12 @@ void main() {
   vec4 sum = vec4(0.0), sumSq = vec4(0.0);
   for (int dy = -1; dy <= 1; dy++)
     for (int dx = -1; dx <= 1; dx++) {
-      vec4 c = texelFetch(uCurrent, clamp(px + ivec2(dx, dy), ivec2(0), last), 0);
+      vec4 c = toYCoCg(texelFetch(uCurrent, clamp(px + ivec2(dx, dy), ivec2(0), last), 0));
       sum += c;
       sumSq += c * c;
     }
   vec4 mean = sum / 9.0;
-  vec4 spread = sqrt(max(sumSq / 9.0 - mean * mean, 0.0));
-  vec4 lo = mean - spread, hi = mean + spread;
+  vec4 spread = sqrt(max(sumSq / 9.0 - mean * mean, 0.0)) * SPREAD;
 
   // Where this pixel's surface was on screen last frame. Pixels that missed the cube reproject
   // through the cube's centre distance.
@@ -577,8 +688,44 @@ void main() {
     fragColor = cur;
     return;
   }
-  vec4 history = clamp(catmullRom(uHistory, prev, uResolution), lo, hi);
-  fragColor = mix(history, cur, uBlend);
+  vec4 history = fromYCoCg(clamp(toYCoCg(catmullRom(uHistory, prev, uResolution)), mean - spread, mean + spread));
+
+  float moved = length((prev - gl_FragCoord.xy / uResolution) * uResolution); // in pixels
+  float blend = uSettled ? mix(STILL_BLEND, MOVING_BLEND, smoothstep(0.0, 1.0, moved)) : MOVING_BLEND;
+  blend = max(blend, uBlend);
+  // Weighted by 1 / (1 + brightness), so a lone bright sample counts for less (Karis, 2014).
+  float wCur = blend / (1.0 + toYCoCg(cur).x);
+  float wHistory = (1.0 - blend) / (1.0 + toYCoCg(history).x);
+  fragColor = (cur * wCur + history * wHistory) / (wCur + wHistory);
+}`;
+
+// With the probe's image: marks its edges (uMark; the stencil test writes the mark) or copies its
+// colour and first-surface distance (see RENDER_FS main).
+export const PROBE_EDGES_FS = /* glsl */ `#version 300 es
+precision highp float;
+precision highp usampler2D;
+uniform sampler2D uProbeColor;
+uniform sampler2D uProbeDepth;
+uniform usampler2D uProbeFaces;
+uniform bool uMark;
+layout(location = 0) out vec4 fragColor;
+layout(location = 1) out float fragDepth;
+
+// Whether any of the 8 neighbours shaded other faces.
+bool edge(ivec2 px) {
+  ivec2 last = textureSize(uProbeFaces, 0) - 1;
+  uint own = texelFetch(uProbeFaces, px, 0).r;
+  for (int dy = -1; dy <= 1; dy++)
+    for (int dx = -1; dx <= 1; dx++)
+      if (texelFetch(uProbeFaces, clamp(px + ivec2(dx, dy), ivec2(0), last), 0).r != own) return true;
+  return false;
+}
+
+void main() {
+  ivec2 px = ivec2(gl_FragCoord.xy);
+  if (uMark && !edge(px)) discard;
+  fragColor = texelFetch(uProbeColor, px, 0);
+  fragDepth = texelFetch(uProbeDepth, px, 0).r;
 }`;
 
 // Copies the accumulated image to the screen.

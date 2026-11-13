@@ -6,13 +6,16 @@ import { CHAOS } from '../presets.ts';
 import { Accumulator } from './accumulate.ts';
 import { createProgram, hexToRgb, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
-import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, RENDER_FS } from './shaders.ts';
+import { ProbeTarget } from './probe.ts';
+import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, PROBE_EDGES_FS, RENDER_FS } from './shaders.ts';
+import { ThresholdTrail, TRAIL_SAMPLES } from './thresholdTrail.ts';
 
 export type ColorBy = 'plain' | 'neighbours' | 'chaos' | 'both';
 export type Samples = 1 | 2 | 4;
 
 export interface ViewOptions {
-  glow: number; // levels above the threshold that glow while it sweeps
+  glow: boolean; // whether new voxels glow
+  glowFor: number; // seconds a new voxel glows for after it appears
   base: string;
   accent: string; // glow colour
   colorBy: ColorBy; // neighbours: by how many of the 26 show; chaos: by level, where all 26 show; both: each where it applies
@@ -26,6 +29,12 @@ const COLOR_BY: Record<ColorBy, number> = { plain: 0, neighbours: 1, chaos: 2, b
 // Uploading and filtering a whole Ultra cube at once holds the GPU for about a tenth of a second, a
 // visible hitch, so a new cube goes in this many voxels per frame.
 const VOXELS_PER_FRAME = 1 << 22;
+
+// With several rays, voxels at least this many pixels wide draw in passes, extra rays only at edges
+// (see RENDER_FS). Smaller ones leave too few pixels inside a face for that to pay. Only when
+// accumulating: drawn straight to the screen, whose buffer is multisampled, the extra full-screen
+// passes cost more than they save.
+const PROBE_FROM_PX = 4;
 
 // One cube's textures.
 interface Volume {
@@ -50,8 +59,8 @@ export class CubeView {
   readonly opts: ViewOptions;
   /** Voxels below this chaos level are hidden; fractions are fine. */
   threshold = 0;
-  /** 0..1: how strongly voxels just above the threshold glow. */
-  heat = 0;
+  /** Where the threshold has been, so voxels it lets in glow for a while. Record each frame's. */
+  readonly trail: ThresholdTrail;
   /** Moves the volume through the cube, in voxels per axis (fractions are fine); wraps around. */
   offset: [number, number, number] = [0, 0, 0];
   /** Rays per pixel: 4 keeps pixel-sized voxels from flashing as they move; each ray costs a trace. */
@@ -66,16 +75,21 @@ export class CubeView {
    * history follows the camera and the volume's drift, but anything else that changes the image
    * takes a few frames to come through. Ignored where float render targets aren't there. */
   accumulate = false;
+  /** Whether the cube holds still (no threshold change), so accumulating can average over longer. */
+  settled = true;
 
   private filter: Program;
   private brickPass: Program;
   private render: Program;
   private edges: Program;
+  private probeEdges: Program;
   private volume: Volume | null = null; // the cube on screen
   private incoming: Incoming | null = null;
   private filterTarget: WebGLFramebuffer;
   private accumulator: Accumulator;
+  private probe: ProbeTarget;
   private lastOffset: [number, number, number] | null = null; // for the voxels' motion between frames
+  private trailPoints = new Float32Array(TRAIL_SAMPLES);
 
   /** Returns null without WebGL2. */
   static create(canvas: HTMLCanvasElement, opts: ViewOptions): CubeView | null {
@@ -92,12 +106,15 @@ export class CubeView {
   private constructor(gl: WebGL2RenderingContext, opts: ViewOptions) {
     this.gl = gl;
     this.opts = opts;
+    this.trail = new ThresholdTrail(opts.glowFor, this.threshold);
     this.filter = createProgram(gl, FULLSCREEN_VS, FILTER_FS);
     this.brickPass = createProgram(gl, FULLSCREEN_VS, BRICKS_FS);
     this.render = createProgram(gl, FULLSCREEN_VS, RENDER_FS);
     this.edges = createProgram(gl, EDGES_VS, EDGES_FS);
+    this.probeEdges = createProgram(gl, FULLSCREEN_VS, PROBE_EDGES_FS);
     this.filterTarget = gl.createFramebuffer();
     this.accumulator = new Accumulator(gl);
+    this.probe = new ProbeTarget(gl);
     gl.bindVertexArray(gl.createVertexArray());
   }
 
@@ -167,10 +184,6 @@ export class CubeView {
         gl.viewport(0, 0, pixelWidth, pixelHeight);
         gl.enable(gl.BLEND);
       }
-      if (temporal) {
-        this.accumulator.begin(pixelWidth, pixelHeight);
-        gl.disable(gl.BLEND);
-      }
       const u = this.render.uniforms;
       gl.useProgram(this.render.program);
       this.setCamera(this.render, camera, pixelWidth, pixelHeight, shift, focal);
@@ -183,12 +196,15 @@ export class CubeView {
       gl.uniform1i(u.uChaos, 0);
       gl.uniform1i(u.uPass, 1);
       gl.uniform1i(u.uBricks, 2);
+      gl.uniform1i(u.uProbeColor, 3);
+      gl.uniform1i(u.uProbeDepth, 4);
       gl.uniform1f(u.uLevels, CHAOS.levels - 1);
       gl.uniform1i(u.uN, n);
       gl.uniform3fv(u.uOffset, this.offset.map(o => ((o % n) + n) % n));
       gl.uniform1f(u.uThreshold, this.threshold);
-      gl.uniform1f(u.uHeat, this.heat);
-      gl.uniform1f(u.uGlow, this.opts.glow);
+      this.trail.sample(this.trailPoints);
+      gl.uniform1fv(u['uTrail[0]'], this.trailPoints);
+      gl.uniform1i(u.uGlow, this.opts.glow ? 1 : 0);
       gl.uniform1f(u.uPixelAngle, 2 / (pixelHeight * focal));
       gl.uniform3fv(u.uBase, hexToRgb(this.opts.base));
       gl.uniform3fv(u.uAccent, hexToRgb(this.opts.accent));
@@ -200,20 +216,77 @@ export class CubeView {
       // within it.
       const jitter = temporal ? this.accumulator.jitter.map(j => (this.samples > 1 ? j / 2 : j)) : [0, 0];
       gl.uniform2fv(u.uJitter, jitter);
-      gl.uniform1f(u.uSunTurn, temporal ? this.accumulator.sunTurn : 0);
+      gl.uniform1i(u.uSunFrame, temporal ? this.accumulator.frameIndex : 0);
       gl.uniform4fv(u.uCarve, this.carve);
       // The sun keeps its place relative to the viewer (high, upper left, behind them), so orbiting
       // looks like the cube turning under a fixed sun.
       const sun = camera.right.map((r, i) => -0.5 * r + 0.85 * (i === 1 ? 1 : 0) - 0.45 * camera.forward[i]);
       const len = Math.hypot(...sun);
       gl.uniform3f(u.uSunDir, sun[0] / len, sun[1] / len, sun[2] / len);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-      if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n));
+
+      // How wide a voxel at the cube's centre is on screen, in pixels.
+      const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
+      const twoPass = temporal && this.samples > 1 && voxelPx >= PROBE_FROM_PX;
+      if (twoPass) {
+        this.probe.begin(pixelWidth, pixelHeight, 3);
+        gl.disable(gl.BLEND);
+        gl.uniform1i(u.uMode, 1);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+        this.probe.bindTextures(3);
+      }
+      if (temporal) {
+        this.accumulator.begin(pixelWidth, pixelHeight);
+        gl.disable(gl.BLEND);
+      } else {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        gl.viewport(0, 0, pixelWidth, pixelHeight);
+        gl.enable(gl.BLEND);
+      }
+      if (twoPass) this.refineEdges();
+      else {
+        gl.uniform1i(u.uMode, 0);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+      }
+      if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n), this.settled);
     }
     gl.disable(gl.BLEND);
   }
 
   // ---------- internals ----------
+
+  /** After the probe pass, into the bound target: marks the probe's edges in the stencil, copies its
+   * colour everywhere else, and casts the refine pass's rays at the marks (see RENDER_FS main).
+   * Leaves the render program in use. */
+  private refineEdges(): void {
+    const { gl } = this;
+    const e = this.probeEdges.uniforms;
+    gl.enable(gl.STENCIL_TEST);
+    gl.stencilMask(0xff);
+    gl.clearStencil(0);
+    gl.clear(gl.STENCIL_BUFFER_BIT);
+    gl.useProgram(this.probeEdges.program);
+    gl.uniform1i(e.uProbeColor, 3);
+    gl.uniform1i(e.uProbeDepth, 4);
+    gl.uniform1i(e.uProbeFaces, 5);
+
+    gl.uniform1i(e.uMark, 1);
+    gl.colorMask(false, false, false, false);
+    gl.stencilFunc(gl.ALWAYS, 1, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.colorMask(true, true, true, true);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+
+    gl.uniform1i(e.uMark, 0);
+    gl.stencilFunc(gl.NOTEQUAL, 1, 0xff);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    gl.useProgram(this.render.program);
+    gl.uniform1i(this.render.uniforms.uMode, 2);
+    gl.stencilFunc(gl.EQUAL, 1, 0xff);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.STENCIL_TEST);
+  }
 
   /** How far the voxels moved since the last call, in world units: the volume moving through the
    * box shifts them the other way. Takes the short way round where the offset wraps. */

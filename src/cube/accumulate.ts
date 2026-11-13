@@ -1,4 +1,4 @@
-// Temporal accumulation for the still cube: each frame casts one ray per pixel at a different point
+// Temporal accumulation: each frame casts one ray per pixel at a different point
 // in the pixel, and RESOLVE_FS blends it into a reprojected history, so a few frames add up to many
 // rays per pixel for the cost of one. Needs float render targets (EXT_color_buffer_float).
 
@@ -6,9 +6,8 @@ import { createProgram, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { FULLSCREEN_VS, PRESENT_FS, RESOLVE_FS } from './shaders.ts';
 
-// Frames a pixel's history averages over at most; newer frames weigh 1/HISTORY_FRAMES each after
-// that, so changes (the drift, the cursor lean) still come through within a few frames.
-const HISTORY_FRAMES = 4;
+// Frames a still pixel's history averages over at most (see RESOLVE_FS for moving ones).
+const HISTORY_FRAMES = 16;
 
 interface Target {
   texture: WebGLTexture;
@@ -38,7 +37,7 @@ export class Accumulator {
   private readonly presentProgram: Program;
   private width = 0;
   private height = 0;
-  private frame: { framebuffer: WebGLFramebuffer; color: WebGLTexture; depth: WebGLTexture } | null = null;
+  private frame: { framebuffer: WebGLFramebuffer; color: WebGLTexture; depth: WebGLTexture; stencil: WebGLRenderbuffer } | null = null;
   private history: [Target, Target] | null = null;
   private frames = 0; // frames blended since the last reset
   private previous: Camera | null = null;
@@ -62,12 +61,13 @@ export class Accumulator {
     return [halton(i, 2) - 0.5, halton(i, 3) - 0.5];
   }
 
-  /** How far to turn this frame's points on the sun disk, in radians. */
-  get sunTurn(): number {
-    return this.frames * 2.39996; // the golden angle, so successive frames spread around the disk
+  /** Frames blended since the last reset; each one aims its shadow rays at new points on the sun disk. */
+  get frameIndex(): number {
+    return this.frames;
   }
 
-  /** Binds the target for this frame's rays (colour and first-surface distance), sized w × h. */
+  /** Binds the target for this frame's rays (colour and first-surface distance, plus a stencil for
+   * drawing only some pixels), sized w × h. */
   begin(w: number, h: number): void {
     const { gl } = this;
     if (w !== this.width || h !== this.height || !this.frame) this.allocate(w, h);
@@ -80,8 +80,8 @@ export class Accumulator {
 
   /** Blends this frame into the history, then draws the result into the default framebuffer
    * (premultiplied, over whatever is there). `motion` is how far the voxels moved since the last
-   * frame, in world units. */
-  finish(camera: CameraBasis, shift: [number, number], focal: number, motion: [number, number, number]): void {
+   * frame, in world units. `settled`: the cube isn't changing, so still pixels can keep a long history. */
+  finish(camera: CameraBasis, shift: [number, number], focal: number, motion: [number, number, number], settled: boolean): void {
     const { gl } = this;
     const [from, to] = this.history!;
     const u = this.resolveProgram.uniforms;
@@ -93,6 +93,7 @@ export class Accumulator {
     this.bindTexture(1, this.frame!.depth, u.uDepth);
     this.bindTexture(2, from.texture, u.uHistory);
     gl.uniform1f(u.uBlend, this.previous ? 1 / Math.min(this.frames + 1, HISTORY_FRAMES) : 1);
+    gl.uniform1i(u.uSettled, settled ? 1 : 0);
     gl.uniform2f(u.uResolution, this.width, this.height);
     gl.uniform3fv(u.uMotion, motion);
     setCamera(gl, u, '', { basis: camera, shift, focal });
@@ -129,7 +130,11 @@ export class Accumulator {
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color, 0);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, depth, 0);
-    this.frame = { framebuffer, color, depth };
+    const stencil = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, stencil);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, w, h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, stencil);
+    this.frame = { framebuffer, color, depth, stencil };
     const target = (): Target => {
       const texture = texture2d(gl, gl.RGBA16F, w, h, gl.LINEAR);
       const fb = gl.createFramebuffer();
@@ -147,6 +152,7 @@ export class Accumulator {
       gl.deleteFramebuffer(this.frame.framebuffer);
       gl.deleteTexture(this.frame.color);
       gl.deleteTexture(this.frame.depth);
+      gl.deleteRenderbuffer(this.frame.stencil);
     }
     for (const t of this.history ?? []) {
       gl.deleteFramebuffer(t.framebuffer);
