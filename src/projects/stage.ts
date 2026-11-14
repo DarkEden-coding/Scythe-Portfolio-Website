@@ -1,7 +1,7 @@
 // The project panels. Each project has a rig: a flat layout of panels on a plane through the cube's
 // centre, facing the camera at that project's station. The rig is transformed with the cube's own
 // camera, so the panels fly in with the cube, turn with it when it is dragged, and shift against
-// each other by depth. With flat set (narrow screens, no WebGL) a rig is an ordinary card.
+// each other by depth. With flat set (no WebGL) a rig is an ordinary card.
 
 import { type CameraBasis, orbitBasis, type V3 } from '../cube/orbitCamera.ts';
 import { el, externalLink } from '../ui/dom.ts';
@@ -33,11 +33,13 @@ export class ProjectStage {
   private active: number | null = null;
   private leaving: number | null = null;
 
-  constructor(root: HTMLElement, projects: ProjectContent[], stations: Record<string, Station>, onClose: () => void) {
+  /** `onStep` gets -1 or 1 when a rig's previous or next button is pressed (shown on phones, which
+   * have no tabs). */
+  constructor(root: HTMLElement, projects: ProjectContent[], stations: Record<string, Station>, onClose: () => void, onStep: (step: number) => void) {
     this.root = root;
     this.rigs = projects.map(project => {
       const station = stations[project.id];
-      const el = buildRig(project, onClose);
+      const el = buildRig(project, onClose, onStep);
       el.inert = true;
       root.append(el);
       return { el, facing: orbitBasis(station.yaw, station.pitch, station.distance), distance: station.distance };
@@ -85,6 +87,7 @@ export class ProjectStage {
     }
     // The rig box is the largest one centred on the cube that fits the stage, so a rig's own layout
     // centres on the cube.
+    style.setProperty('--stage-h', `${lens.height.toFixed(1)}px`); // the canvas's; on phones the cards below it are in the hero too
     style.setProperty('--stage-p', `${lens.perspective.toFixed(1)}px`);
     style.setProperty('--stage-cx', `${lens.centreX.toFixed(1)}px`);
     style.setProperty('--stage-cy', `${lens.centreY.toFixed(1)}px`);
@@ -130,7 +133,7 @@ function zoomShot(rig: HTMLElement, shot: HTMLElement | null): void {
   }
 }
 
-function buildRig(project: ProjectContent, onClose: () => void): HTMLElement {
+function buildRig(project: ProjectContent, onClose: () => void, onStep: (step: number) => void): HTMLElement {
   const rig = el('article', 'rig');
   rig.id = `project-${project.id}`;
   rig.setAttribute('aria-label', project.name);
@@ -145,6 +148,13 @@ function buildRig(project: ProjectContent, onClose: () => void): HTMLElement {
   const links = el('p', 'panel__links');
   links.append(externalLink(project.repo, 'GitHub', 'panel__link'));
   if (project.live) links.append(externalLink(project.live, 'Live site', 'panel__link'));
+  const steps = el('p', 'panel__steps');
+  for (const [step, text] of [[-1, 'Previous'], [1, 'Next']] as const) {
+    const button = el('button', 'panel__step', text);
+    button.type = 'button';
+    button.addEventListener('click', () => onStep(step));
+    steps.append(button);
+  }
   about.append(
     close,
     el('p', 'panel__meta mono', meta),
@@ -152,6 +162,7 @@ function buildRig(project: ProjectContent, onClose: () => void): HTMLElement {
     el('p', 'panel__tagline', project.tagline),
     el('p', 'panel__summary', project.summary),
     links,
+    steps,
     cardBack(),
   );
 

@@ -92,6 +92,8 @@ if (!view) {
   $('.sim-card').hidden = true;
   hint.hidden = true;
 }
+// Touch has no shift key or click; two fingers move the volume (see OrbitCamera).
+if (matchMedia('(pointer: coarse)').matches) hint.textContent = 'drag to turn · pinch to zoom · tap for next';
 
 // ---------- loading cubes ----------
 
@@ -292,7 +294,10 @@ const camera = new OrbitCamera({
   yaw: 0.72, pitch: HOME.pitch, distance: homeDistance,
   minDistance: 2, maxDistance: 8, autoRotate: reducedMotion ? 0 : HOME.autoRotate,
 });
-camera.attach(canvas);
+// Drags on the canvas, and on the screenshots in the bore, turn the cube; a drag across a screenshot
+// doesn't also click it.
+camera.attach(canvas, hero, target => target === canvas || target.closest('.shot') !== null);
+hero.addEventListener('click', e => { if (camera.justDragged) e.stopPropagation(); }, true);
 camera.onTap = () => { if (!reducedMotion) riseThenNext(); };
 
 // Moving the volume: in Move mode a drag slides it in the screen plane (shift swaps modes, two
@@ -357,7 +362,8 @@ function homePose(): Pose {
   return { ...currentPose(), pitch: HOME.pitch, distance: homeDistance, tour: 0 };
 }
 
-const stage = new ProjectStage($('#stage'), PROJECTS, STATIONS, () => openProject(null));
+const stage = new ProjectStage($('#stage'), PROJECTS, STATIONS, () => openProject(null),
+  step => { if (projectIndex !== null) openProject((projectIndex + step + PROJECTS.length) % PROJECTS.length); });
 const selectTab = buildTabs($('#project-tabs'), PROJECTS, index => openProject(index));
 renderContributions($('#contributions'));
 // The list below the cube; its buttons go back up and fly there.
@@ -408,12 +414,13 @@ addEventListener('keydown', e => {
 
 // Where the cube sits: centred across wide screens, a little high to clear the cards. Stacked, the
 // canvas is a block of its own above the cards, so the cube is centred, a little low to clear the
-// header.
+// header; at a station it fills the screen, with the bore high, above the project's card.
 const stacked = matchMedia('(max-width: 720px)');
 const TOUR_SHIFT = -0.07; // at a station the cards are gone, so the cube sits in the middle of what the header leaves
+const STACKED_TOUR_SHIFT = 0.24;
 function layout(w: number, h: number): { shift: [number, number]; focal: number } {
   const aspect = w / h;
-  if (stacked.matches) return { shift: [0, -0.1], focal: 1.75 * Math.min(1, aspect / 0.9) };
+  if (stacked.matches) return { shift: [0, -0.1 + (STACKED_TOUR_SHIFT + 0.1) * tour], focal: 1.75 * Math.min(1, aspect / 0.9) };
   const home = aspect < 1.5 ? 0.2 : 0.12;
   return { shift: [0, home + (TOUR_SHIFT - home) * tour], focal: 1.6 * Math.min(1, aspect / 1.6) };
 }
@@ -529,7 +536,7 @@ function draw(): void {
 function placeStage(): void {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   const { shift, focal } = layout(w, h);
-  stage.flat = !view || stacked.matches;
+  stage.flat = !view;
   stage.place(camera.basis(), camera.distance, {
     centreX: w / 2 + (shift[0] * h) / 2, centreY: h / 2 - (shift[1] * h) / 2, perspective: (focal * h) / 2, width: w, height: h,
   }, camera.turning);

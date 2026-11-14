@@ -2,6 +2,10 @@
 // With panMode (or shift held, which swaps), and with two fingers, drags go to onPan instead. Plain wheel is left alone so the
 // page still scrolls over the canvas. The camera also leans a little toward the cursor, and a
 // press that doesn't move counts as a tap.
+//
+// Presses can start on things laid over the canvas (the project screenshots), so a drag across
+// one still turns the cube; `grabs` picks which. A press there that doesn't move stays theirs: it
+// clicks them, and isn't a tap.
 
 export type V3 = [number, number, number];
 
@@ -36,6 +40,8 @@ export class OrbitCamera {
   private lean = { x: 0, y: 0, tx: 0, ty: 0 };
   private pressMoved = 0;
   private pressTurned = false;
+  private pressOnCanvas = false;
+  private releasedAt = -Infinity;
   onTap: (() => void) | null = null;
   /** Called with pointer movement in CSS pixels for pan drags. */
   onPan: ((dx: number, dy: number) => void) | null = null;
@@ -50,9 +56,15 @@ export class OrbitCamera {
     this.autoRotate = opts.autoRotate;
   }
 
-  attach(el: HTMLElement): void {
-    el.addEventListener('pointerdown', e => {
-      el.setPointerCapture(e.pointerId);
+  /** Listens for presses on `surface` that `grabs` says are the camera's, and leans toward the
+   * mouse over `canvas`. */
+  attach(canvas: HTMLElement, surface: HTMLElement, grabs: (target: Element) => boolean): void {
+    surface.addEventListener('pointerdown', e => {
+      if (!(e.target instanceof Element) || !grabs(e.target)) return;
+      // Captured by what was pressed, so a drag off the page still ends, and a press that started
+      // on a screenshot still clicks it.
+      e.target.setPointerCapture(e.pointerId);
+      this.pressOnCanvas = e.target === canvas;
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
       if (this.pointers.size === 2) {
         this.pinchStart = this.spread();
@@ -67,14 +79,14 @@ export class OrbitCamera {
     // screenshots laid on top of it, which take its pointer events.
     document.addEventListener('pointermove', e => {
       if (e.pointerType !== 'mouse') return;
-      const r = el.getBoundingClientRect();
+      const r = canvas.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
       const over = x >= 0 && x <= 1 && y >= 0 && y <= 1;
       this.lean.tx = over ? x * 2 - 1 : 0;
       this.lean.ty = over ? y * 2 - 1 : 0;
     });
     document.documentElement.addEventListener('pointerleave', () => { this.lean.tx = 0; this.lean.ty = 0; });
-    el.addEventListener('pointermove', e => {
+    surface.addEventListener('pointermove', e => {
       const prev = this.pointers.get(e.pointerId);
       if (!prev) return;
       const dx = e.clientX - prev.x, dy = e.clientY - prev.y;
@@ -93,18 +105,25 @@ export class OrbitCamera {
       }
       this.lastInput = performance.now();
     });
-    el.addEventListener('pointerup', e => {
+    surface.addEventListener('pointerup', e => {
+      if (!this.pointers.has(e.pointerId)) return;
       const wasSingle = this.pointers.size === 1;
       this.pointers.delete(e.pointerId);
-      if (wasSingle && this.pressMoved < 6) this.onTap?.();
+      this.releasedAt = performance.now();
+      if (wasSingle && this.pressMoved < 6 && this.pressOnCanvas) this.onTap?.();
     });
-    el.addEventListener('pointercancel', e => this.pointers.delete(e.pointerId));
-    el.addEventListener('wheel', e => {
+    surface.addEventListener('pointercancel', e => this.pointers.delete(e.pointerId));
+    canvas.addEventListener('wheel', e => {
       if (!e.ctrlKey) return; // trackpad pinch arrives as ctrl+wheel
       e.preventDefault();
       this.zoomTo(this.distance * Math.exp(e.deltaY * 0.01));
       this.lastInput = performance.now();
     }, { passive: false });
+  }
+
+  /** Whether a press just ended in a drag, so the click that follows it isn't one. */
+  get justDragged(): boolean {
+    return this.pressMoved >= 6 && performance.now() - this.releasedAt < 300;
   }
 
   get dragging(): boolean {
