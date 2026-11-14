@@ -232,7 +232,6 @@ export class CubeView {
         gl.disable(gl.BLEND);
         gl.uniform1i(u.uMode, 1);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
-        this.probe.bindTextures(3);
       }
       if (temporal) {
         this.accumulator.begin(pixelWidth, pixelHeight);
@@ -242,7 +241,12 @@ export class CubeView {
         gl.viewport(0, 0, pixelWidth, pixelHeight);
         gl.enable(gl.BLEND);
       }
-      if (twoPass) this.refineEdges();
+      // Bound only now: a resize reallocates the accumulator's textures, binding them on whichever
+      // unit is active, which could be one of these.
+      if (twoPass) {
+        this.probe.bindTextures(3);
+        this.refineEdges();
+      }
       else {
         gl.uniform1i(u.uMode, 0);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
