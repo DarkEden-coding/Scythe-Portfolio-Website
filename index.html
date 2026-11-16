@@ -24,7 +24,7 @@
         <span class="tabs__label mono" aria-hidden="true">Projects</span>
       </div>
       <nav aria-label="Sections">
-        <a href="#projects">Projects</a>
+        <a href="#projects">Projects<span class="nav__aside"> (boring view)</span></a>
         <a href="#contact">Contact</a>
       </nav>
       <a class="icon-btn nav__linkedin" href="https://www.linkedin.com/in/elliot-scully-79028344b" aria-label="LinkedIn" target="_blank" rel="noopener">
@@ -172,6 +172,49 @@
       </div>
 
       <p class="hint mono" id="sim-hint" aria-hidden="true">drag to rotate · shift-drag to move · click for next</p>
+
+      <button class="whatis mono" type="button" popovertarget="whatis-panel">
+        <span class="whatis__brace" aria-hidden="true">{</span>
+        <span class="whatis__text">What in lords name even is this??</span>
+      </button>
+
+      <aside class="card whatis-panel" id="whatis-panel" popover aria-labelledby="whatis-title">
+        <div class="whatis-panel__head">
+          <h2 id="whatis-title">So what is this thing?</h2>
+          <button class="icon-btn" type="button" popovertarget="whatis-panel" popovertargetaction="hide" aria-label="Close">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 4.6l1.1-1.1L8 6.9l3.4-3.4 1.1 1.1L9.1 8l3.4 3.4-1.1 1.1L8 9.1l-3.4 3.4-1.1-1.1L6.9 8z" /></svg>
+          </button>
+        </div>
+
+        <p class="whatis-panel__lede">Short version: it's millions of triple pendulums, and a map of which ones lose their minds.</p>
+
+        <h3>Every voxel is a pendulum</h3>
+        <p>A triple pendulum is three rods hinged end to end, swinging under gravity. Pick three starting angles, let go, and watch it flail. The cube is every combination of those angles: the x, y and z axes are the three arms, each going all the way round from −180° to +180°. So each little block is one pendulum, dropped from its own pose.</p>
+        <p>Angles wrap around (+180° and −180° are the same thing), so the space has no real edges. That's why shift-drag can slide the volume forever without hitting a wall.</p>
+
+        <h3>What decides what shows up</h3>
+        <p>For every pendulum I nudge its start by a tiny amount and measure how fast that nudge snowballs over the first 5 seconds. That's the Lyapunov exponent, in e-folds per second: at 2, a small error grows about 7× every second. Calm pendulums (the ones that start near hanging straight down) barely react. Chaotic ones blow up fast.</p>
+        <p>The slider is a cutoff: only pendulums at least that chaotic get drawn. When a cube grows in, the cutoff is sliding down, so you see the wildest ones first and the rest fill in around them. Five seconds is short on purpose. Run it longer and everything averages out into mush; short runs keep the folded, fractal-looking structure.</p>
+
+        <h3>The colours</h3>
+        <p>By default, voxels on the edge of a region are coloured by how many neighbours they have, and voxels buried inside a solid chunk are coloured by how chaotic they are. Brighter means more. You can switch that, swap palettes, or turn on Glow (new voxels flash and cool off) in the settings under the little arrow.</p>
+
+        <h3>Behind the curtain</h3>
+        <ul>
+          <li><b>Baked on my GPU.</b> A CUDA program steps every pendulum with RK4 at 100 steps a second. Instead of running a twin pendulum a hair away, it carries the nudge along as dual numbers (automatic differentiation), which stays accurate even in 32-bit floats.</li>
+          <li><b>Lots of them.</b> Five pendulums with different arm lengths and masses, each at four sizes up to 320³: about 33 million pendulums in the biggest cube.</li>
+          <li><b>Squished.</b> Each voxel is stored as one of 64 chaos levels in a single byte, then gzipped. A web worker streams and unpacks it, and your browser caches it so it only downloads once.</li>
+          <li><b>Hand-rolled renderer.</b> No three.js, just WebGL2. Every pixel fires a ray that steps through the 3D grid voxel by voxel, and a coarser "brick map" lets it skip big empty chunks. Shadows come from a soft sun disk.</li>
+          <li><b>Free anti-aliasing.</b> When the camera is still, each frame jitters its rays a bit and blends with the previous frames, so one ray per pixel ends up looking about as good as four.</li>
+          <li><b>Adapts to your machine.</b> If frames run slow, it drops rays per pixel, then resolution, then grid size, until it's smooth again.</li>
+          <li><b>Projects live inside.</b> The project panels are normal HTML, positioned in 3D with CSS so they line up with the WebGL camera.</li>
+        </ul>
+
+        <h3>Things to try</h3>
+        <p>Drag to spin it, shift-drag (or two fingers) to slide through the volume, click for the next pendulum, and drag the slider to carve it down to just the most chaotic bits.</p>
+
+        <p class="whatis-panel__sign">Is it useful? Not really. Is it cool? I think so.</p>
+      </aside>
     </section>
 
     <section class="wrap work" id="projects" aria-labelledby="projects-title">
