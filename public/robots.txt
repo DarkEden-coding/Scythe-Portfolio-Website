@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://elliotscully.dev/sitemap.xml

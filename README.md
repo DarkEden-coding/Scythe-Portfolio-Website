@@ -112,3 +112,23 @@ gzip -9 -n -c cube.raw > public/cubes/0-160.cube
 `scripts/contributions.mjs` reads the public contribution calendar on my GitHub profile (no token
 needed) and saves it to `public/contributions.json`. It runs before every build. If GitHub can't
 be reached, it keeps the last saved file.
+
+## Search and link previews
+
+The `<head>` in `index.html` carries the description, canonical URL, Open Graph and Twitter tags,
+and JSON-LD describing the site and me. `public/` holds `robots.txt`, `sitemap.xml`,
+`site.webmanifest` and the icons.
+
+`public/og.jpg` is the 1200×630 image shown when the site is linked. Its source is
+`scripts/og/card.html`: the hero's nav and id cards, restyled from `src/styles.css`, over
+`scripts/og/cube.jpg`, a screenshot of the finished cube with the page UI hidden. When the cube or
+the hero text changes, update `card.html` to match, then recapture and re-render (macOS, Brave by
+default; set `BROWSER` to another Chromium):
+
+```sh
+node scripts/og/capture.mjs          # or pass a URL, e.g. a local `npm run preview`
+"/Applications/Brave Browser.app/Contents/MacOS/Brave Browser" --headless=new --hide-scrollbars \
+  --allow-file-access-from-files --force-device-scale-factor=1 --window-size=1200,630 \
+  --screenshot=og.png "file://$PWD/scripts/og/card.html"
+sips -s format jpeg -s formatOptions 88 og.png --out public/og.jpg && rm og.png
+```
