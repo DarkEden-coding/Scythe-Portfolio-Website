@@ -10,19 +10,19 @@ import { orbitBasis } from '../src/cube/orbitCamera.ts';
 import type { CubeView } from '../src/cube/view.ts';
 import { cubeUrl } from '../src/presets.ts';
 import { BORE, layout, viewOptions } from '../src/scene.ts';
-import { GpuTimer } from './gpuTimer.ts';
-import { FLIGHT, type Scene, SCENES, SWEEP } from './scenes.ts';
+import { GpuTimer, WallTimer } from './gpuTimer.ts';
+import { FLIGHT, HOME_LOW, type Scene, SCENES, SWEEP } from './scenes.ts';
 
 const FILTER_K = 6; // as main.ts
 const WARMUP = 4; // frames before each block, after a fresh history
 const SETTLE = 16; // still frames before a moving block starts turning (as run.mjs)
-const ALL = [...SCENES, SWEEP, FLIGHT];
+const ALL = [...SCENES, SWEEP, FLIGHT, ...HOME_LOW];
 
 interface Contestant {
   name: 'a' | 'b';
   canvas: HTMLCanvasElement;
   view: CubeView;
-  timer: GpuTimer;
+  timer: GpuTimer | WallTimer;
   loaded: string;
 }
 
@@ -38,8 +38,10 @@ async function contestant(name: 'a' | 'b'): Promise<Contestant> {
   if ('waitForShaders' in switches) switches.waitForShaders = true; // every frame from the final programs
   if ('freezeWhenStill' in switches) switches.freezeWhenStill = false; // time the rays, not a frozen picture
   view.setFilter(FILTER_K);
-  const timer = GpuTimer.create(view.gl);
-  if (!timer) throw new Error('No GPU timer queries');
+  // Wall clock where there are no timer queries, or when asked for (?wall): a CPU renderer's
+  // timer queries may not cover all of its work.
+  const wall = new URLSearchParams(location.search).has('wall');
+  const timer = (wall ? null : GpuTimer.create(view.gl)) ?? new WallTimer(view.gl);
   return { name, canvas, view, timer, loaded: '' };
 }
 
@@ -113,6 +115,13 @@ async function block(c: Contestant, frames: number): Promise<number> {
 
 const ab = {
   scenes: () => ALL.map(s => s.id),
+
+  renderer(): string {
+    const { gl } = contestants[0].view;
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const timer = contestants[0].timer instanceof WallTimer ? 'wall clock' : 'GPU timer queries';
+    return `${gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)} (${timer})`;
+  },
 
   async setScene(id: string): Promise<void> {
     const next = ALL.find(s => s.id === id);

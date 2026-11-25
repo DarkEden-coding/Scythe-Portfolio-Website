@@ -44,3 +44,28 @@ export class GpuTimer {
     return disjoint ? null : times;
   }
 }
+
+/** For GPUs without timer queries (SwiftShader has none): the wall time of the draw plus a
+ * 1-pixel read, which waits for the frame to finish. Includes the CPU's share of the frame. */
+export class WallTimer {
+  private readonly gl: WebGL2RenderingContext;
+  private times: number[] = [];
+
+  constructor(gl: WebGL2RenderingContext) {
+    this.gl = gl;
+  }
+
+  timeFrame(run: () => void): void {
+    const start = performance.now();
+    run();
+    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+    this.gl.readPixels(0, 0, 1, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, new Uint8Array(4));
+    this.times.push(performance.now() - start);
+  }
+
+  async collect(): Promise<number[]> {
+    const times = this.times;
+    this.times = [];
+    return times;
+  }
+}

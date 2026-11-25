@@ -8,8 +8,11 @@ import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
 
 const BRAVE = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser';
+// CUBE_BENCH_ANGLE picks another ANGLE backend, e.g. `swiftshader` (WebGL on the CPU, a stand-in for
+// a weak GPU) or `gl` (macOS's OpenGL driver, a second GPU code path).
+const ANGLE = process.env.CUBE_BENCH_ANGLE ?? 'metal';
 export const BROWSER_ARGS = [
-  '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist',
+  `--use-angle=${ANGLE}`, ...(ANGLE === 'swiftshader' ? ['--enable-unsafe-swiftshader'] : []), '--enable-gpu', '--ignore-gpu-blocklist',
   '--disable-gpu-vsync', '--disable-frame-rate-limit',
   '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
   '--no-first-run', '--no-default-browser-check',

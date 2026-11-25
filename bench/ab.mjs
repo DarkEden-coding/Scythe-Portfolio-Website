@@ -56,10 +56,11 @@ const median = list => [...list].sort((x, y) => x - y)[Math.floor(list.length / 
 const scenes = args.scenes?.split(',') ?? (args.quick ? QUICK : null);
 const results = { a: describe(args.a), b: describe(args.b), date: new Date().toISOString(), rounds: Number(args.rounds), frames: Number(args.frames), scenes: {} };
 try {
-  const page = await openPage(browser, `${server.resolvedUrls.local[0].replace(/\/$/, '')}/bench/ab.html`);
+  const page = await openPage(browser, `${server.resolvedUrls.local[0].replace(/\/$/, '')}/bench/ab.html${process.env.CUBE_BENCH_WALL ? '?wall' : ''}`);
   await page.waitForFunction(() => 'ab' in window, { timeout: 60_000 });
   const ids = scenes ?? await page.evaluate(() => window.ab.scenes());
-  console.log(`A: ${results.a}\nB: ${results.b}\n${'scene'.padEnd(22)}     A ms     B ms   B/A   (rounds' B/A from..to)`);
+  results.renderer = await page.evaluate(() => window.ab.renderer());
+  console.log(`Renderer: ${results.renderer}\nA: ${results.a}\nB: ${results.b}\n${'scene'.padEnd(22)}     A ms     B ms   B/A   (rounds' B/A from..to)`);
   for (const id of ids) {
     await page.evaluate(id => window.ab.setScene(id), id);
     const { a, b } = await page.evaluate((r, f) => window.ab.run(r, f), results.rounds, results.frames);

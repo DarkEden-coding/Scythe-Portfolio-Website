@@ -88,5 +88,11 @@ export const FLIGHT: Scene = {
   motion: { frames: 100, yawPerFrame: 0, samples: 1, settled: false, flyTo: { pose: stationPose(station), lambda: station.lambda } },
 };
 
+/** Only for bench/ab.mjs: the home view at Low (64³), where the site starts on a software renderer
+ * (main.ts, isSoftwareRenderer). For timing under SwiftShader. */
+export const HOME_LOW: Scene[] = RESOLUTIONS.map(resolution => ({
+  ...SCENES.find(s => s.id === `home-high-${resolution.id}`)!, id: `home-low-${resolution.id}`, n: GRID.low, resolution,
+}));
+
 /** The scenes --quick runs. */
 export const QUICK = ['home-ultra-hi', 'station-ultra-hi', 'orbit-ultra-hi'];
