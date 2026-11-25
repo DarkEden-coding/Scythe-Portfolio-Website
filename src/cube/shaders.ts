@@ -559,6 +559,17 @@ float boreHollow(Ray r) {
   return dot(o + r.rd * side, a) >= 0.0 ? side : end;
 }
 
+// Whether nothing shows in a brick (x) and in the cubes of bricks of each of REACH_RADII around it (yzw).
+vec4 clearCubes(ivec3 brick) {
+  uvec4 levels = textureLod(uReach, (vec3(brick) + 0.5) / float(uN >> ${Math.log2(BRICK)}), 0.0);
+  return vec4(lessThanEqual(vec4(levels) + 1.0, vec4(uThreshold)));
+}
+// How many bricks on along each axis the far corner of the largest clear cube is. The cubes nest, so
+// the clear ones are the first few: this adds up to the radius of the last.
+int reachOf(vec4 clear) {
+  return int(dot(clear.yzw, vec3(${REACH_RADII[0]}, ${REACH_RADII[1] - REACH_RADII[0]}, ${REACH_RADII[2] - REACH_RADII[1]})));
+}
+
 // Moves to the next cell that shows, skipping empty bricks. False once the ray leaves the box.
 bool findShowing(inout Ray r) {
   for (int i = 0; i < 1024; i++) {
@@ -586,12 +597,13 @@ bool findShowing(inout Ray r) {
       if (CARVING) {
         r.bits = brickBits(brick);
         empty = r.bits == uvec2(0u);
+        // The cubes don't know about the bore, but it only takes voxels away, so a cube clear
+        // without it is clear with it.
+        if (empty) reach = reachOf(clearCubes(brick));
       } else {
-        uvec4 levels = textureLod(uReach, (vec3(brick) + 0.5) / float(uN >> ${Math.log2(BRICK)}), 0.0);
-        vec4 clear = vec4(lessThanEqual(vec4(levels) + 1.0, vec4(uThreshold)));
+        vec4 clear = clearCubes(brick);
         empty = clear.x > 0.0;
-        // The cubes nest, so the clear ones are the first few: this adds up to the radius of the last.
-        reach = int(dot(clear.yzw, vec3(${REACH_RADII[0]}, ${REACH_RADII[1] - REACH_RADII[0]}, ${REACH_RADII[2] - REACH_RADII[1]})));
+        reach = reachOf(clear);
       }
       if (empty) {
         brick += ivec3(r.stepDir) * reach;
