@@ -3,10 +3,11 @@
 // lock left by a run that died is taken over.
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const LOCK = join(tmpdir(), 'cube-bench-gpu.lock');
+// A fixed path, not os.tmpdir(): each agent or terminal session can have its own TMPDIR, and then
+// every run would get a lock of its own.
+const LOCK = '/tmp/cube-bench-gpu.lock';
 
 // EPERM means the process exists but belongs to someone this one can't signal (a sandboxed agent,
 // say): it is alive, and taking its lock would put two runs on the GPU.
