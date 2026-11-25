@@ -602,8 +602,13 @@ bool findShowing(inout Ray r) {
         // The axis the ray leaves through lands exactly on the next brick; rounding floor() there
         // can put the cell on the wrong side when the ray runs almost along that plane.
         ivec3 next = brick * ${BRICK} + ivec3(greaterThan(r.stepDir, vec3(0.0))) * ${BRICK} - ivec3(lessThan(r.stepDir, vec3(0.0)));
-        ivec3 along = ivec3(floor(r.p + r.rd * tExit));
-        r.cell = ivec3(mix(vec3(along), vec3(next), vec3(leave)));
+        // On the other axes it lands where it is at tExit, but never back from the cell it is in: at a
+        // brick edge, where the ray crosses two faces at once, floor() can round back across the one
+        // it just crossed, and then two empty bricks hand the ray back and forth until the loop
+        // gives up, leaving a hole.
+        vec3 here = vec3(r.cell);
+        vec3 along = here + r.stepDir * max(r.stepDir * (floor(r.p + r.rd * tExit) - here), 0.0);
+        r.cell = ivec3(mix(along, vec3(next), vec3(leave)));
         r.tMax = (r.stepDir * (vec3(r.cell) - r.p) + r.stepDir * 0.5 + 0.5) * r.tDelta;
         // On the other axes, floor() can land one cell behind the ray; step those forward.
         ivec3 behind = ivec3(lessThan(r.tMax, vec3(tExit))) * ivec3(not(leave));
