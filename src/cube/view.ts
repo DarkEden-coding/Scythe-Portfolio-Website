@@ -417,6 +417,8 @@ export class CubeView {
     gl.texStorage3D(gl.TEXTURE_3D, 1, gl[format], n, n, n);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    // The default, set anyway: RENDER_FS relies on the sampler wrapping the periodic volume.
+    for (const axis of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T, gl.TEXTURE_WRAP_R]) gl.texParameteri(gl.TEXTURE_3D, axis, gl.REPEAT);
     return texture;
   }
 }

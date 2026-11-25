@@ -140,16 +140,15 @@ layout(location = 2) out uint fragFaces;  // the probe's faces id (see faces)
 // Set by trace(): the distance along the ray to the first surface it drew, or -1.
 float firstDepth = -1.0;
 
-// Cells are in the tiled volume: 0..2n inside the box, a cell further for neighbours, so a
-// couple of compares wrap them. Integer % is slow on GPUs, and every voxel read goes through here.
-ivec3 wrap(ivec3 c, int n) {
-  ivec3 size = ivec3(n);
-  c += size * ivec3(lessThan(c, ivec3(0)));
-  c -= size * ivec3(greaterThanEqual(c, size));
-  return c - size * ivec3(greaterThanEqual(c, size));
+// Cells are in the tiled volume: 0..2n inside the box, a cell further for neighbours. The volume's
+// textures repeat (WebGL's default wrap mode), so reading one at a cell's centre in texture
+// coordinates lets the sampler wrap it, where texelFetch would need a few compares per axis. Every
+// voxel read goes through here. (Integer textures can be sampled this way with nearest filtering;
+// lod 0 keeps the read from needing derivatives inside the ray loops.)
+uint voxel(usampler3D tex, ivec3 cell, int size) {
+  return textureLod(tex, (vec3(cell) + 0.5) / float(size), 0.0).r;
 }
-ivec3 data(ivec3 cell) { return wrap(cell, uN); }
-float chaos(ivec3 cell) { return float(texelFetch(uChaos, data(cell), 0).r); }
+float chaos(ivec3 cell) { return float(voxel(uChaos, cell, uN)); }
 
 // How much of a cell the bore removes: all of it near the axis, less towards the rim, so the wall
 // is ragged where chaotic voxels outlast calm ones. The bore runs from the box centre out along
@@ -162,8 +161,7 @@ float carved(ivec3 cell) {
 
 // How far above the threshold a voxel sits; it shows at 0 or more.
 float margin(ivec3 cell) {
-  ivec3 d = data(cell);
-  float m = float(texelFetch(uPass, d, 0).r) * (1.0 / 256.0) - uThreshold;
+  float m = float(voxel(uPass, cell, uN)) * (1.0 / 256.0) - uThreshold;
   return uCarve.w > 0.0 ? m - carved(cell) * (uLevels + 1.0) : m;
 }
 bool shows(ivec3 cell) { return margin(cell) >= 0.0; }
@@ -310,7 +308,7 @@ bool findShowing(inout Ray r) {
     // where the ray leaves it.
     // Each brick is looked up once, when the ray enters it.
     ivec3 brick = r.cell >> ${Math.log2(BRICK)};
-    if (brick != r.brick && (float(texelFetch(uBricks, wrap(brick, uN >> ${Math.log2(BRICK)}), 0).r) + 1.0 <= uThreshold || boredOut(brick))) {
+    if (brick != r.brick && (float(voxel(uBricks, brick, uN >> ${Math.log2(BRICK)})) + 1.0 <= uThreshold || boredOut(brick))) {
       vec3 exitAt = vec3(brick * ${BRICK}) + (r.stepDir * 0.5 + 0.5) * float(${BRICK});
       vec3 tb = (exitAt - r.p) * r.inv;
       float tExit = min(min(tb.x, tb.y), tb.z);
