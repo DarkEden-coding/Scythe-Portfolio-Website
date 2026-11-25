@@ -179,6 +179,7 @@ uniform vec3 uSunDir;       // towards the sun
 uniform int uSamples;       // rays per pixel: 1, 2 or 4
 #endif
 uniform vec4 uCarve;        // a bore cut into the voxels: xyz its axis, from the centre out; w its radius in box units (0: none)
+uniform float uHollow;      // how far from the bore's axis, in cells, no cell shows
 #ifndef CARVING
 #define CARVING (uCarve.w > 0.0)
 #endif
@@ -468,14 +469,14 @@ void jumpTo(inout Ray r, float t) {
   else { r.t = entered.z; r.normal = vec3(0.0, 0.0, -r.stepDir.z); }
 }
 
-// How far a ray at t can jump through the bore's hollow, or 0 if it isn't in it. carved() takes a
-// cell whole when its centre is within 0.85 of the bore's radius of the axis, so anywhere within
+// How far a ray at t can jump through the bore's hollow, or 0 if it isn't in it. No cell shows whose
+// centre is within uHollow of the bore's axis (see boreHollowRadius in view.ts), so anywhere within
 // half a cell diagonal less than that, the ray is in a cell that doesn't show. That region is a
 // capsule: a cylinder around the axis's half-line, with a round end at the box centre. A ray inside
 // it leaves through the side or through the round end, and the side only counts on the outward side
 // of the centre: there the cylinder is the boundary, behind it the sphere is.
 float boreHollow(Ray r) {
-  float radius = 0.85 * 0.5 * float(uN) * uCarve.w - ${(Math.sqrt(3) / 2).toFixed(4)} - BORE_SLACK; // in cells
+  float radius = uHollow - ${(Math.sqrt(3) / 2).toFixed(4)} - BORE_SLACK; // in cells
   vec3 o = r.p + r.rd * r.t - (uOffset + 0.5 * float(uN)); // from the box centre
   vec3 a = uCarve.xyz;
   vec3 across = o - a * dot(o, a); // the parts across the axis

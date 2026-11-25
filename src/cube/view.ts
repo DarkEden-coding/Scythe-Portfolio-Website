@@ -55,6 +55,16 @@ function atlasSize(n: number): [number, number] {
   return [size * perRow, size * Math.ceil(size / perRow)];
 }
 
+/** How far from the bore's axis no cell shows, in cells, for RENDER_FS's jump across the hollow.
+ * carved() takes 1 - smoothstep(0.85 r, r, distance) of a cell, and a voxel's margin is below
+ * levels - threshold, so a cell carved by at least 1 - threshold / levels can't show. That is where
+ * the smoothstep is at most threshold / levels: further out than 0.85 r as the threshold rises. */
+export function boreHollowRadius(radius: number, threshold: number, n: number): number {
+  const k = Math.min(1, Math.max(0, threshold / CHAOS.levels));
+  const t = 0.5 - Math.sin(Math.asin(1 - 2 * k) / 3); // where smoothstep(0, 1, t) = k
+  return (0.85 + 0.15 * t) * radius * 0.5 * n;
+}
+
 // One cube's textures.
 interface Volume {
   n: number;
@@ -387,6 +397,7 @@ export class CubeView {
     gl.uniform2fv(u.uJitter, jitter);
     gl.uniform1i(u.uSunFrame, temporal ? this.accumulator.frameIndex : 0);
     gl.uniform4fv(u.uCarve, this.carve);
+    gl.uniform1f(u.uHollow, boreHollowRadius(this.carve[3], this.threshold, n));
     // The sun keeps its place relative to the viewer (high, upper left, behind them), so orbiting
     // looks like the cube turning under a fixed sun.
     const sun = camera.right.map((r, i) => -0.5 * r + 0.85 * (i === 1 ? 1 : 0) - 0.45 * camera.forward[i]);
