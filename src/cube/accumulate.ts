@@ -32,6 +32,8 @@ function halton(i: number, base: number): number {
 
 export class Accumulator {
   readonly supported: boolean;
+  /** For profiling: called as each of finish()'s passes starts (see CubeView.onPass). */
+  onPass: ((pass: 'resolve' | 'present') => void) | null = null;
   private readonly gl: WebGL2RenderingContext;
   private readonly resolveProgram: Program;
   private readonly presentProgram: Program;
@@ -85,6 +87,7 @@ export class Accumulator {
     const { gl } = this;
     const [from, to] = this.history!;
     const u = this.resolveProgram.uniforms;
+    this.onPass?.('resolve');
     gl.disable(gl.BLEND);
     gl.bindFramebuffer(gl.FRAMEBUFFER, to.framebuffer);
     gl.viewport(0, 0, this.width, this.height);
@@ -103,6 +106,7 @@ export class Accumulator {
     this.previous = { basis: camera, shift: [...shift], focal };
     this.frames++;
 
+    this.onPass?.('present');
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.width, this.height);
     gl.enable(gl.BLEND);

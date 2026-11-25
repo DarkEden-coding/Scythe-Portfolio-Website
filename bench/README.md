@@ -1,0 +1,86 @@
+# Cube benchmark
+
+Times the cube renderer and checks that a change leaves the picture alone. `run.mjs` starts a Vite
+dev server, opens `bench/index.html` in headless Brave on the real GPU (ANGLE Metal, its own temp
+profile), draws fixed scenes, and writes `bench/results/<label>/`. The page isn't part of the site
+build.
+
+## Running
+
+Needs the cube files in `public/cubes/` (in a worktree, symlink the main checkout's) and Brave at
+`/Applications/Brave Browser.app`.
+
+```sh
+npm run bench -- --label baseline                     # all scenes, about 95 s
+npm run bench -- --label my-change --compare baseline # then compare, PASS/FAIL per scene
+npm run bench -- --label try --quick                  # home, station and orbit at 2520×1575, about 40 s
+node bench/compare.mjs my-change baseline             # compare two existing runs again
+```
+
+Other flags: `--scenes a,b` runs just those, and `--port` (default 5199) or `--url` (an existing dev
+server). `--compare` takes a label under `bench/results/` or a path to a run's directory.
+
+To compare a branch, run the baseline on its base commit and the candidate on the branch, on the
+same machine, one run at a time. Other GPU work running at the same time skews the timings. Images
+are only kept locally (`*.png` is git-ignored), so a baseline from another checkout has to be passed
+as a path. Rendering is deterministic, so rerunning the base commit gives the same images.
+
+## Scenes (`scenes.ts`)
+
+Each scene runs at 1440×900 CSS px × DPR 1.75 (`-hi`, 2520×1575) and at 1280×720 × 1 (`-lo`).
+Colouring, palette, filter and threshold are the site's defaults. Nothing moves on its own.
+
+| scene | what |
+| --- | --- |
+| `home-ultra`, `home-high` | the home view, sun lighting, 320³ and 160³ |
+| `studio-ultra` | the same with studio lighting |
+| `station-ultra` | parked at Spaghetti: bore carved, the station's threshold and camera |
+| `closeup-medium` | 112³ at the closest distance. Voxels are about 11 px wide, so the probe/refine path runs |
+| `orbit-ultra` | camera turning 0.01 rad a frame for 60 frames with 1 ray and a short history, as in a flight |
+| `drag-ultra` | the same turn with 2 rays and the settled history. This is what `main.ts` does while you drag the finished cube |
+
+## What a run records (`results.json`)
+
+- **timing**: 60 timed frames after a 10-frame warm-up. Still scenes are timed in their settled
+  state (temporal AA, 2 rays), and moving scenes while they turn. `gpu` comes from
+  `EXT_disjoint_timer_query_webgl2` and `wall` is the draw plus a 1-pixel read to sync. Both
+  give median, p90, mean and min in ms. `passes` is the median ms per pass (edges, bricks,
+  probe, refine, render, resolve, present) over 20 more frames, split by waiting for the GPU at
+  each pass boundary (`passClock.ts`). Timer queries can't split passes on ANGLE Metal. The
+  split adds about 1 ms of waiting per frame, so use it to see where the time goes.
+- **images**: for still scenes, `single-s1` and `single-s2` are one frame with temporal AA off,
+  and `converged` is after 32 accumulated frames. For moving scenes, every frame is saved
+  (`frame-NN`), after 16 settled frames at the start pose. All are RGB, composited over the
+  page background `#1c1c1f`.
+- **temporal** (`temporal.ts`): luminance in levels of 255, over the pixels the cube covers.
+  - `noiseMean`, `noiseP99`: the per-pixel standard deviation over the last 16 accumulated
+    frames of a still scene, or over all 60 frames of a moving one. Still, this is pure noise
+    (shadow-ray noise left in the history, jitter crawl). Moving, it is mostly the motion,
+    which is the same in both runs.
+  - `flickerPct`: the % of pixel-frames that brighten and then darken (or the reverse) by more
+    than 8 levels each step.
+
+## Comparing (`compare.mjs`)
+
+For each image, compared with the baseline's: PSNR (100 = identical), mean absolute error, max
+error, and % of pixels off by more than 8/255 in any channel. Heatmaps of the differences go to
+`<run>/diff-<baseline>/`, keeping only the worst frame of a moving scene. Speed is the change in
+median and p90 GPU ms.
+
+A scene **passes** when:
+
+| | threshold |
+| --- | --- |
+| still, converged image | PSNR ≥ 40 dB and ≤ 1% of pixels off by more than 8/255 |
+| still, noise | mean ≤ 1.1 × baseline + 0.05 and p99 ≤ 1.1 × baseline + 0.5 |
+| moving, frames | mean PSNR ≥ 35 dB and worst frame ≥ 30 dB |
+| moving, noise and flicker | mean ≤ baseline + 0.5, p99 ≤ baseline + 2, flicker ≤ baseline + 0.5 points |
+| single frames | only a warning below 35 dB, since changing how rays are sampled moves their noise |
+
+Speed doesn't affect PASS/FAIL. Two runs of the same code give identical images, so quality
+compares exactly. Timings vary by about ±3% in median between runs (up to ±5% for the
+small `-lo` frames and moving scenes), so smaller speed changes are noise.
+
+Checked against deliberate regressions: shortening the still history from 16 to 6 frames fails home and
+station on noise, even though their converged PSNR stays at 47–49 dB. Turning temporal AA off
+while moving fails both orbit scenes on every moving check.

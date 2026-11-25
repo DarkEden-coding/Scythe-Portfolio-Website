@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Cube benchmark</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; background: #1c1c1f; color: #ecebe6; font: 13px ui-monospace, monospace; }
+      canvas { display: block; width: 640px; } /* the backing size is set per scene; this is only for looking */
+    </style>
+  </head>
+  <body>
+    <p>Driven by <code>bench/run.mjs</code>; see <code>bench/README.md</code>. In a console: <code>await bench.setScene('home-ultra-lo'); bench.render(32)</code>.</p>
+    <canvas id="cube"></canvas>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

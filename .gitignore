@@ -5,6 +5,11 @@ dist
 
 # Baked cube files (about 120 MB). `npm run bake` packs them from the masters kept on the GPU
 # host, which takes a few minutes; see scripts/bake.mjs.
-public/cubes/
+/public/cubes
 
 .wrangler
+
+# Benchmark output: only results.json files are worth keeping (see bench/README.md).
+bench/results/**/*.png
+bench/results/**/compare-*.json
+bench/results/**/diff-*/

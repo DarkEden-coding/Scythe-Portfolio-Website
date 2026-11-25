@@ -15,6 +15,7 @@ npm run dev        # dev server
 npm test           # unit tests (vitest)
 npm run build      # fetches the contribution graph, type-checks, builds to dist/
 npm run deploy     # build, then upload dist/ to Cloudflare with wrangler
+npm run bench      # renderer speed and image-quality benchmark (bench/README.md)
 ```
 
 The cube files in `public/cubes/` are not in the repo (about 120 MB). Without them the page loads

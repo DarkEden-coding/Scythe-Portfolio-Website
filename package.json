@@ -10,9 +10,12 @@
     "preview": "vite preview",
     "test": "vitest run",
     "bake": "node scripts/bake.mjs",
+    "bench": "node bench/run.mjs",
     "deploy": "npm run build && wrangler deploy"
   },
   "devDependencies": {
+    "pngjs": "^7.0.0",
+    "puppeteer-core": "^25.18.1",
     "typescript": "5.9",
     "vite": "^8.3.8",
     "vitest": "^4.1.12",

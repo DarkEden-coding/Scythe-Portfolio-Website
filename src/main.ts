@@ -7,10 +7,11 @@ import poster1440 from './assets/hero/poster-1440.webp';
 import { chaosToLevel, levelToChaos } from './cube/cubeFile.ts';
 import { Flight, type Pose } from './cube/flight.ts';
 import { isSoftwareRenderer } from './cube/gl.ts';
-import { OrbitCamera, orbitBasis } from './cube/orbitCamera.ts';
+import { OrbitCamera } from './cube/orbitCamera.ts';
 import { type Cube, unpackCube } from './cube/unpack.ts';
 import { type ColorBy, CubeView, type Samples } from './cube/view.ts';
 import { CHAOS, cubeUrl, GRID, PRESETS, type Quality } from './presets.ts';
+import { BORE, CENTER, FLOOR, HOME, layout as cubeLayout, MAX_DPR, type Palette, PALETTES, PLAIN_GLOW, stationPose, viewOptions } from './scene.ts';
 import { PROJECTS } from './projects/content.ts';
 import { ProjectStage } from './projects/stage.ts';
 import { STATIONS, type Station } from './projects/stations.ts';
@@ -26,8 +27,6 @@ const SWEEP_RATE = 8; // chaos levels per real second
 const HOLD_FOR = 8; // real seconds the finished cube stays up; dragging restarts the count
 const RISE_FOR = 1.8; // real seconds to clear it before the next preset
 const SETTLE_OVER = 8; // chaos levels before the target over which a sweep slows to a stop
-const FLOOR = 1.6; // default threshold the sweep stops at, e-folds per second
-const CENTER: [number, number, number] = [0.5, 0.5, 0.5]; // default move, as a fraction of the volume
 const DRIFT = [0.016, 0.01, 0.0066]; // idle move, fractions of the volume per real second
 const DRIFT_AFTER = 4; // real seconds after a manual move before drifting again
 // A project tab flies the cube to that project's station: its preset, part of the volume, threshold
@@ -35,17 +34,8 @@ const DRIFT_AFTER = 4; // real seconds after a manual move before drifting again
 const FLY_FOR = 1.7; // real seconds a flight takes
 const TOUR_SWEEP_RATE = 22; // chaos levels per real second on the way to a station
 const TOUR_RISE_FOR = 0.6; // real seconds to clear the cube when a station needs another preset
-const BORE = 0.6; // the bore's radius at a station, where the box spans -1..1
-const HOME = { pitch: 0.42, autoRotate: 0.14 };
 
-type Palette = 'ember' | 'glacier' | 'aurora';
-const PALETTES: Record<Palette, { ramp: [string, string, string, string]; glow: string }> = {
-  ember: { ramp: ['#6a0e12', '#c8181c', '#ff7b2e', '#ffe9c6'], glow: '#e0181c' },
-  glacier: { ramp: ['#1d3a72', '#2f72c8', '#6fd2f2', '#f0fbff'], glow: '#4fb4ff' },
-  aurora: { ramp: ['#47207e', '#2b8590', '#86d35c', '#f6ee72'], glow: '#ff4fa8' },
-};
 const COLOR_BY: Record<ColorBy, true> = { plain: true, neighbours: true, chaos: true, both: true };
-const PLAIN_GLOW = '#e0181c';
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -81,9 +71,7 @@ const pauseBtn = $<HTMLButtonElement>('#sim-pause');
 const recenterBtn = $<HTMLButtonElement>('#sim-recenter');
 type DragMode = 'rotate' | 'move';
 
-const view = CubeView.create(canvas, {
-  glow: false, glowFor: 0.45, base: '#ecebe6', accent: PLAIN_GLOW, colorBy, ramp: PALETTES[palette].ramp, sun: lighting === 'sun', edgeColor: [1, 1, 1, 0.16],
-});
+const view = CubeView.create(canvas, viewOptions(colorBy, palette, lighting === 'sun'));
 
 // Rendering on the CPU, Ultra runs at a few frames a second; start where it can keep up.
 if (view && !userPickedQuality && isSoftwareRenderer(view.gl)) quality = 'low';
@@ -298,9 +286,9 @@ showFps.addEventListener('change', () => {
 });
 bindDisclosure('sim-settings-toggle', 'settings');
 
-const homeDistance = smallScreen ? 4.7 : 4.1;
+const homeDistance = smallScreen ? HOME.phoneDistance : HOME.distance;
 const camera = new OrbitCamera({
-  yaw: 0.72, pitch: HOME.pitch, distance: homeDistance,
+  yaw: HOME.yaw, pitch: HOME.pitch, distance: homeDistance,
   minDistance: 2, maxDistance: 8, autoRotate: reducedMotion ? 0 : HOME.autoRotate,
 });
 // Drags on the canvas, and on the screenshots in the bore, turn the cube; a drag across a screenshot
@@ -360,12 +348,6 @@ function applyPose(pose: Pose): void {
   tour = pose.tour;
 }
 
-/** The pose parked at a station. The bore points at the camera. */
-function stationPose(at: Station): Pose {
-  const { forward } = orbitBasis(at.yaw, at.pitch, at.distance);
-  return { yaw: at.yaw, pitch: at.pitch, distance: at.distance, move: at.move, axis: [-forward[0], -forward[1], -forward[2]], tour: 1 };
-}
-
 /** Back out to the whole cube, facing the way the camera already does. */
 function homePose(): Pose {
   return { ...currentPose(), pitch: HOME.pitch, distance: homeDistance, tour: 0 };
@@ -421,18 +403,9 @@ addEventListener('keydown', e => {
 
 // ---------- drawing ----------
 
-// Where the cube sits: centred across wide screens, a little high to clear the cards. Stacked, the
-// canvas is a block of its own above the cards, so the cube is centred, a little low to clear the
-// header; at a station it fills the screen, with the bore high, above the project's card.
+// Where the cube sits (see scene.ts); narrow screens stack the canvas above the cards.
 const stacked = matchMedia('(max-width: 720px)');
-const TOUR_SHIFT = -0.07; // at a station the cards are gone, so the cube sits in the middle of what the header leaves
-const STACKED_TOUR_SHIFT = 0.24;
-function layout(w: number, h: number): { shift: [number, number]; focal: number } {
-  const aspect = w / h;
-  if (stacked.matches) return { shift: [0, -0.1 + (STACKED_TOUR_SHIFT + 0.1) * tour], focal: 1.75 * Math.min(1, aspect / 0.9) };
-  const home = aspect < 1.5 ? 0.2 : 0.12;
-  return { shift: [0, home + (TOUR_SHIFT - home) * tour], focal: 1.6 * Math.min(1, aspect / 1.6) };
-}
+const layout = (w: number, h: number) => cubeLayout(w, h, stacked.matches, tour);
 
 type Rays = 'auto' | '1' | '2' | '4';
 type Resolution = 'auto' | '50' | '75' | '100';
@@ -530,7 +503,7 @@ function adapt(dt: number): void {
 
 function draw(): void {
   if (!view) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, 1.75) * renderScale;
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR) * renderScale;
   const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   const { shift, focal } = layout(w, h);

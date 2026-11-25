@@ -12,6 +12,8 @@ import { ThresholdTrail, TRAIL_SAMPLES } from './thresholdTrail.ts';
 
 export type ColorBy = 'plain' | 'neighbours' | 'chaos' | 'both';
 export type Samples = 1 | 2 | 4;
+/** The GPU passes of a draw, for profiling (see CubeView.onPass). */
+export type Pass = 'edges' | 'bricks' | 'probe' | 'refine' | 'render' | 'resolve' | 'present';
 
 export interface ViewOptions {
   glow: boolean; // whether new voxels glow
@@ -78,6 +80,7 @@ export class CubeView {
   /** Whether the cube holds still (no threshold change), so accumulating can average over longer. */
   settled = true;
 
+  private passHook: ((pass: Pass | null) => void) | null = null;
   private filter: Program;
   private brickPass: Program;
   private render: Program;
@@ -116,6 +119,18 @@ export class CubeView {
     this.accumulator = new Accumulator(gl);
     this.probe = new ProbeTarget(gl);
     gl.bindVertexArray(gl.createVertexArray());
+  }
+
+  /** For profiling (bench/): called as each pass of a draw starts, and with null after the last. */
+  set onPass(hook: ((pass: Pass | null) => void) | null) {
+    this.passHook = hook;
+    this.accumulator.onPass = hook;
+  }
+
+  /** Drops the accumulated history, so the next frame starts a new one (as after a resize). */
+  resetHistory(): void {
+    this.accumulator.reset();
+    this.lastOffset = null;
   }
 
   /** Whether `accumulate` works here (it needs float render targets). */
@@ -168,6 +183,7 @@ export class CubeView {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
     // Outline first; the voxels cover it where they stand in front.
+    this.passHook?.('edges');
     const [r, g, b, a] = this.opts.edgeColor;
     gl.useProgram(this.edges.program);
     this.setCamera(this.edges, camera, pixelWidth, pixelHeight, shift, focal);
@@ -178,6 +194,7 @@ export class CubeView {
     if (volume && volume !== this.incoming?.volume) {
       const { n } = volume;
       if (volume.bricksStale) {
+        this.passHook?.('bricks');
         this.refreshBricks(volume);
         volume.bricksStale = false;
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -227,6 +244,7 @@ export class CubeView {
       // How wide a voxel at the cube's centre is on screen, in pixels.
       const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
       const twoPass = temporal && this.samples > 1 && voxelPx >= PROBE_FROM_PX;
+      this.passHook?.(twoPass ? 'probe' : 'render');
       if (twoPass) {
         this.probe.begin(pixelWidth, pixelHeight, 3);
         gl.disable(gl.BLEND);
@@ -244,6 +262,7 @@ export class CubeView {
       // Bound only now: a resize reallocates the accumulator's textures, binding them on whichever
       // unit is active, which could be one of these.
       if (twoPass) {
+        this.passHook?.('refine');
         this.probe.bindTextures(3);
         this.refineEdges();
       }
@@ -254,6 +273,7 @@ export class CubeView {
       if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n), this.settled);
     }
     gl.disable(gl.BLEND);
+    this.passHook?.(null);
   }
 
   // ---------- internals ----------
