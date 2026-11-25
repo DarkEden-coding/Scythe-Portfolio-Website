@@ -81,7 +81,7 @@ they accumulate, not as the frozen picture the site shows once they have converg
 - **timing**: 60 timed frames after a 10-frame warm-up. Still scenes are timed in their settled
   state (temporal AA, 2 rays), and moving scenes while they turn. `gpu` comes from
   `EXT_disjoint_timer_query_webgl2` and `wall` is the draw plus a 1-pixel read to sync. Both
-  give median, p90, mean and min in ms. `passes` is the median ms per pass (edges, bricks,
+  give median, p90, mean and min in ms. `passes` is the median ms per pass (edges, bricks, occupancy,
   probe, refine, render, resolve, present) over 20 more frames, split by waiting for the GPU at
   each pass boundary (`passClock.ts`). Timer queries can't split passes on ANGLE Metal. The
   split adds about 1 ms of waiting per frame, so use it to see where the time goes.

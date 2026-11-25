@@ -57,14 +57,28 @@ are five presets, each at four grid sizes (64³, 112³, 160³, 320³).
 
 - **Ray marching:** a DDA over a 3D integer texture, with a brick map (max level per 4³ block)
   to skip empty space. The threshold slider hides voxels below a chaos level, so the brick map is
-  what keeps the ray count low as the cube thins out.
+  what keeps the ray count low as the cube thins out. Voxels are read through the sampler with
+  REPEAT wrapping, so the periodic volume wraps for free instead of costing compares per read.
+- **The bore:** at a project the cube has a bore cut towards the camera. Rays skip bricks the bore
+  thins below the threshold and jump straight across its hollow (a ray–capsule exit, wider as the
+  threshold rises), so they don't step through the empty middle.
 - **Shading:** colour comes from the chaos level and the neighbouring voxels, with soft shadows
-  from points on a sun disk.
+  from points on a sun disk. A bit volume of which voxels show at the current threshold (64 bits
+  per brick, rebuilt in one draw when the threshold changes) gives each shaded voxel its 3×3×3
+  neighbourhood in 8 reads, for ambient occlusion and the neighbour count. Shadow rays only walk
+  the box inset by the fade bands (nothing nearer the faces casts shade), and each pair of camera
+  rays shares one, cast after both are traced.
+- **Specialised shaders:** the ray-cast compiles a variant per combination of lighting, colouring,
+  glow, rays per pixel and bore (`#define`s, `variants.ts`), in the background where the browser
+  allows, so each draw runs only the code it needs. Passes are scissored to the cube's rectangle on
+  screen.
 - **Temporal AA:** while the camera is still, rays are jittered and the sun disk turns a little
   each frame. Earlier frames are reprojected through the first surface's depth, and Catmull-Rom
   sampling and variance clipping keep that from ghosting. Measured against a 64-ray reference
   image, one ray per pixel accumulated is about as close as four rays without it
-  (`accumulate.ts`).
+  (`accumulate.ts`). Once a still picture has accumulated 32 frames with nothing changed, the view
+  stops casting rays and shows it as it is until something does (`freeze.ts`), which at a
+  project is most of the time.
 - **Adaptive quality:** when frames run long, the renderer drops rays per pixel first, then render
   resolution, then grid size. Each can also be pinned in the settings panel.
 - **Loading:** a worker streams and unpacks the files (`unpack.worker.ts`) and keeps them in Cache

@@ -5,12 +5,13 @@
 //  FILTER_FS  per voxel, the highest threshold at which it still shows with k showing neighbours,
 //             with the voxel's order (see there) packed in below it
 //  BRICKS_FS  per 4³ block of the volume, its highest level, so rays skip empty blocks
+//  OCCUPANCY_FS which voxels show at the current threshold, a bit each, 4³ bricks per texel, for shading
 //  RENDER_FS  ray-casts the grid and draws visible voxels as lit cubes, studio-lit or sunlit with shadows;
 //             a bore can be cut into them, which is where the project panels float
 //  PROBE_EDGES_FS marks the edges in the probe pass's image and fills in the rest (see RENDER_FS main)
 //  RESOLVE_FS blends a frame's rays into the reprojected earlier frames' (see accumulate.ts)
 //  PRESENT_FS copies that blend to the screen
-//  EDGES_*    draws the cube's 12 outline edges
+//  EDGES_*    draws the cube's 12 outline edges, antialiased
 
 import { TRAIL_SAMPLES } from './thresholdTrail.ts';
 
