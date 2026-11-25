@@ -43,16 +43,27 @@ const VOXELS_PER_FRAME = 1 << 22;
 // accumulating: the refine pass needs the accumulator's stencil buffer.
 const PROBE_FROM_PX = 4;
 
-// The occupancy texture's layout (see OCCUPANCY_FS): its n / BRICK z-slices of bricks side by side,
+// The occupancy texture's layout (see OCCUPANCY_FS): `size` z-slices of size² bricks side by side,
 // a power of two to a row (so the ray-cast finds a slice with a mask and a shift), as square as that
-// allows: 16 × 5 slices of 80² for Ultra, 1280 × 400 texels.
-function atlasShift(n: number): number {
-  return Math.ceil(Math.log2(Math.sqrt(n / BRICK)));
+// allows. Without the bore it covers the volume, n / BRICK bricks per axis from brick 0: for Ultra
+// 16 × 5 slices of 80², 1280 × 400 texels. With it, the box's bricks (see boxBricks).
+interface Occupancy {
+  size: number; // bricks per axis
+  base: [number, number, number]; // the first, in bricks of the tiled volume
 }
-function atlasSize(n: number): [number, number] {
-  const size = n / BRICK;
-  const perRow = 1 << atlasShift(n);
+function atlasShift(size: number): number {
+  return Math.ceil(Math.log2(Math.sqrt(size)));
+}
+function atlasSize(size: number): [number, number] {
+  const perRow = 1 << atlasShift(size);
   return [size * perRow, size * Math.ceil(size / perRow)];
+}
+
+/** The bricks of the tiled volume that hold the box at `offset` (0..n) and the cells around it:
+ * cells floor(offset) - 1 to ceil(offset + n) per axis, n + 3 at most, which span n / BRICK + 2
+ * bricks however they fall. 82³ bricks for Ultra, 5.2 MB. */
+export function boxBricks(n: number, offset: readonly number[]): Occupancy {
+  return { size: n / BRICK + 2, base: offset.map(o => Math.floor((Math.floor(o) - 1) / BRICK)) as Occupancy['base'] };
 }
 
 /** How far from the bore's axis no cell shows, in cells, for RENDER_FS's jump across the hollow.
@@ -73,7 +84,7 @@ interface Volume {
   bricks: WebGLTexture; // highest level per brick of the volume
   bricksStale: boolean;
   occupancy: WebGLTexture; // which voxels show, a bit each, per brick of the volume (see OCCUPANCY_FS)
-  occupancyFor: number | null; // the threshold it was built for; null when stale
+  occupancyFor: string | null; // what it was built for (see occupancyKey); null when stale
 }
 
 // A cube on its way in: slices uploaded and filtered so far.
@@ -273,10 +284,12 @@ export class CubeView {
         this.refreshBricks(volume);
         volume.bricksStale = false;
       }
-      if (volume.occupancyFor !== this.threshold) {
+      const occupancy = this.occupancyLayout(n);
+      const occupancyKey = this.carve[3] > 0 ? `${this.threshold} ${this.carve} ${this.boxOffset(n)}` : `${this.threshold}`;
+      if (volume.occupancyFor !== occupancyKey) {
         this.passHook?.('occupancy');
-        this.refreshOccupancy(volume);
-        volume.occupancyFor = this.threshold;
+        this.refreshOccupancy(volume, occupancy);
+        volume.occupancyFor = occupancyKey;
       }
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, pixelWidth, pixelHeight);
@@ -289,7 +302,7 @@ export class CubeView {
       gl.bindTexture(gl.TEXTURE_3D, volume.bricks);
       gl.activeTexture(gl.TEXTURE7);
       gl.bindTexture(gl.TEXTURE_2D, volume.occupancy);
-      const useRender = (mode: RenderMode): void => this.useRender(render, mode, n, camera, pixelWidth, pixelHeight, shift, focal, temporal);
+      const useRender = (mode: RenderMode): void => this.useRender(render, mode, n, occupancy, camera, pixelWidth, pixelHeight, shift, focal, temporal);
 
       // How wide a voxel at the cube's centre is on screen, in pixels.
       const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
@@ -366,7 +379,7 @@ export class CubeView {
   }
 
   /** Puts the ray-cast program in use for a pass, with every uniform set (see RENDER_FS). */
-  private useRender(render: Program, mode: RenderMode, n: number, camera: CameraBasis, pixelWidth: number, pixelHeight: number, shift: [number, number], focal: number, temporal: boolean): void {
+  private useRender(render: Program, mode: RenderMode, n: number, occupancy: Occupancy, camera: CameraBasis, pixelWidth: number, pixelHeight: number, shift: [number, number], focal: number, temporal: boolean): void {
     const { gl } = this;
     const u = render.uniforms;
     gl.useProgram(render.program);
@@ -375,12 +388,14 @@ export class CubeView {
     gl.uniform1i(u.uPass, 1);
     gl.uniform1i(u.uBricks, 2);
     gl.uniform1i(u.uOccupancy, 7);
-    gl.uniform1i(u.uAtlasShift, atlasShift(n));
+    gl.uniform1i(u.uAtlasShift, atlasShift(occupancy.size));
+    gl.uniform3iv(u.uBoxBricks, occupancy.base);
+    gl.uniform1i(u.uBoxSize, occupancy.size);
     gl.uniform1i(u.uProbeColor, 3);
     gl.uniform1i(u.uProbeDepth, 4);
     gl.uniform1f(u.uLevels, CHAOS.levels - 1);
     gl.uniform1i(u.uN, n);
-    gl.uniform3fv(u.uOffset, this.offset.map(o => ((o % n) + n) % n));
+    gl.uniform3fv(u.uOffset, this.boxOffset(n));
     gl.uniform1f(u.uThreshold, this.threshold);
     gl.uniform1fv(u['uTrail[0]'], this.trailPoints);
     gl.uniform1i(u.uGlow, this.opts.glow ? 1 : 0);
@@ -404,6 +419,16 @@ export class CubeView {
     const len = Math.hypot(...sun);
     gl.uniform3f(u.uSunDir, sun[0] / len, sun[1] / len, sun[2] / len);
     gl.uniform1i(u.uMode, mode);
+  }
+
+  /** Where the box starts in the tiled volume, 0..n per axis (RENDER_FS's uOffset). */
+  private boxOffset(n: number): [number, number, number] {
+    return this.offset.map(o => ((o % n) + n) % n) as [number, number, number];
+  }
+
+  /** What the occupancy texture covers this frame (see OCCUPANCY_FS). */
+  private occupancyLayout(n: number): Occupancy {
+    return this.carve[3] > 0 ? boxBricks(n, this.boxOffset(n)) : { size: n / BRICK, base: [0, 0, 0] };
   }
 
   /** How far the voxels moved since the last call, in world units: the volume moving through the
@@ -500,13 +525,13 @@ export class CubeView {
     }
   }
 
-  /** Rebuilds which voxels show at the threshold (see OCCUPANCY_FS), in one draw. The threshold
-   * sweeps during playback, so this runs most frames then. */
-  private refreshOccupancy(volume: Volume): void {
+  /** Rebuilds which voxels show at the threshold, bore included (see OCCUPANCY_FS), in one draw.
+   * The threshold sweeps during playback, so this runs most frames then. */
+  private refreshOccupancy(volume: Volume, occupancy: Occupancy): void {
     const { gl } = this;
     const { n } = volume;
     const u = this.occupancyPass.uniforms;
-    const [width, height] = atlasSize(n);
+    const [width, height] = atlasSize(occupancy.size);
     gl.disable(gl.BLEND);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.filterTarget);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, volume.occupancy, 0);
@@ -517,7 +542,12 @@ export class CubeView {
     gl.uniform1i(u.uPass, 0);
     gl.uniform1f(u.uThreshold, this.threshold);
     gl.uniform1i(u.uN, n);
-    gl.uniform1i(u.uAtlasShift, atlasShift(n));
+    gl.uniform1i(u.uAtlasShift, atlasShift(occupancy.size));
+    gl.uniform1i(u.uSize, occupancy.size);
+    gl.uniform3iv(u.uBase, occupancy.base);
+    gl.uniform3fv(u.uOffset, this.boxOffset(n));
+    gl.uniform4fv(u.uCarve, this.carve);
+    gl.uniform1f(u.uLevels, CHAOS.levels - 1);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
@@ -525,7 +555,8 @@ export class CubeView {
     const { gl } = this;
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RG32UI, ...atlasSize(n));
+    // Big enough for either layout (see Occupancy); the box's is the larger.
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RG32UI, ...atlasSize(boxBricks(n, [0, 0, 0]).size));
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     return texture;

@@ -27,6 +27,7 @@ export interface Motion {
   samples: Samples;
   settled: boolean; // see CubeView.settled
   levelsPerFrame?: number; // the threshold sweeping down, as in playback, with glow on
+  flyTo?: { pose: Pose; lambda: number }; // flying from the scene's pose and threshold to these, over the frames
 }
 
 export interface Scene {
@@ -77,6 +78,14 @@ export const SCENES: Scene[] = BASES.flatMap(({ name, quality, ...base }) => RES
 export const SWEEP: Scene = {
   ...SCENES.find(s => s.id === 'home-ultra-hi')!, id: 'sweep-ultra-hi',
   motion: { frames: 60, yawPerFrame: 0.14 / 60, samples: 1, settled: false, levelsPerFrame: 8 / 60 },
+};
+
+/** Only for bench/ab.mjs, like SWEEP: the flight from home to the station, over 100 frames (main.ts
+ * takes 1.7 s), with one ray and a short history as main.ts draws it. The bore opens and the volume
+ * moves every frame, the threshold rises to the station's, and the camera closes in. */
+export const FLIGHT: Scene = {
+  ...SCENES.find(s => s.id === 'home-ultra-hi')!, id: 'flight-ultra-hi',
+  motion: { frames: 100, yawPerFrame: 0, samples: 1, settled: false, flyTo: { pose: stationPose(station), lambda: station.lambda } },
 };
 
 /** The scenes --quick runs. */

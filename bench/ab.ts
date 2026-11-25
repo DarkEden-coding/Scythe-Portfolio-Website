@@ -5,17 +5,18 @@
 // them round by round. Separate full runs can differ by far more than the changes being measured.
 
 import { chaosToLevel, loadCube } from '../src/cube/cubeFile.ts';
+import { Flight, type Pose } from '../src/cube/flight.ts';
 import { orbitBasis } from '../src/cube/orbitCamera.ts';
 import type { CubeView } from '../src/cube/view.ts';
 import { cubeUrl } from '../src/presets.ts';
 import { BORE, layout, viewOptions } from '../src/scene.ts';
 import { GpuTimer } from './gpuTimer.ts';
-import { type Scene, SCENES, SWEEP } from './scenes.ts';
+import { FLIGHT, type Scene, SCENES, SWEEP } from './scenes.ts';
 
 const FILTER_K = 6; // as main.ts
 const WARMUP = 4; // frames before each block, after a fresh history
 const SETTLE = 16; // still frames before a moving block starts turning (as run.mjs)
-const ALL = [...SCENES, SWEEP];
+const ALL = [...SCENES, SWEEP, FLIGHT];
 
 interface Contestant {
   name: 'a' | 'b';
@@ -46,11 +47,16 @@ const contestants = [await contestant('a'), await contestant('b')];
 const cubes = new Map<string, Promise<Uint8Array>>();
 let scene: Scene = SCENES[0];
 
-function draw(c: Contestant, yaw: number): void {
-  const { pose } = scene;
+function draw(c: Contestant, pose: Pose): void {
   const { width, height } = c.canvas;
   const { shift, focal } = layout(width, height, false, pose.tour);
-  c.view.draw(orbitBasis(yaw, pose.pitch, pose.distance), width, height, shift, focal);
+  c.view.draw(orbitBasis(pose.yaw, pose.pitch, pose.distance), width, height, shift, focal);
+}
+
+/** Puts the volume and the bore where a pose has them, as main.ts draw() does. */
+function place(c: Contestant, pose: Pose): void {
+  c.view.offset = pose.move.map(m => m * scene.n) as [number, number, number];
+  c.view.carve = [...pose.axis, BORE * pose.tour];
 }
 
 function sync(c: Contestant): void {
@@ -59,10 +65,16 @@ function sync(c: Contestant): void {
   gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
 }
 
-/** One block: a fresh history, the warm-up, then `frames` timed frames. Their median GPU ms. */
+/** One block: a fresh history, the warm-up, then `frames` timed frames (a flight's own count). Their
+ * median GPU ms. */
 async function block(c: Contestant, frames: number): Promise<number> {
   const { view } = c;
-  const { motion, pose } = scene;
+  const { motion } = scene;
+  let pose = scene.pose;
+  const flyTo = motion?.flyTo;
+  if (flyTo) frames = motion.frames;
+  const flight = flyTo && new Flight(pose, flyTo.pose, frames);
+  place(c, pose);
   view.accumulate = true;
   view.samples = scene.samples;
   view.settled = true;
@@ -72,20 +84,26 @@ async function block(c: Contestant, frames: number): Promise<number> {
   view.threshold = chaosToLevel(scene.lambda) + sweep * frames;
   view.trail.reset(view.threshold);
   view.opts.glow = sweep > 0;
-  let yaw = pose.yaw;
-  for (let i = 0; i < (motion ? SETTLE : WARMUP); i++) draw(c, yaw);
+  for (let i = 0; i < (motion ? SETTLE : WARMUP); i++) draw(c, pose);
   if (motion) {
     view.samples = motion.samples;
     view.settled = motion.settled;
   }
   sync(c);
   for (let i = 0; i < frames; i++) {
-    if (motion) yaw += motion.yawPerFrame;
+    if (motion) pose = { ...pose, yaw: pose.yaw + motion.yawPerFrame };
+    if (flight) {
+      pose = flight.step(1);
+      place(c, pose);
+      const from = chaosToLevel(scene.lambda);
+      view.threshold = from + (chaosToLevel(flyTo.lambda) - from) * pose.tour;
+      view.trail.record(view.threshold, 1 / 60);
+    }
     if (sweep) {
       view.threshold -= sweep;
       view.trail.record(view.threshold, 1 / 60);
     }
-    c.timer.timeFrame(() => draw(c, yaw));
+    c.timer.timeFrame(() => draw(c, pose));
     sync(c); // as run.mjs: on ANGLE's Metal backend a query covers its whole command buffer, so frames go one at a time
   }
   const times = await c.timer.collect();
@@ -109,18 +127,17 @@ const ab = {
       canvas.height = Math.round(resolution.height * resolution.dpr);
       view.opts.sun = scene.sun;
       view.threshold = chaosToLevel(scene.lambda);
-      view.offset = pose.move.map(m => m * n) as [number, number, number];
-      view.carve = [...pose.axis, BORE * pose.tour];
+      place(c, pose);
       if (c.loaded !== key) {
         let done = false;
         view.load(await cubes.get(key)!, n).then(() => { done = true; });
         while (!done) {
-          draw(c, pose.yaw);
+          draw(c, pose);
           await new Promise(r => setTimeout(r));
         }
         c.loaded = key;
       }
-      draw(c, pose.yaw); // builds whatever the threshold needs, so no timed frame does
+      draw(c, pose); // builds whatever the threshold needs, so no timed frame does
       sync(c);
     }
   },

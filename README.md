@@ -59,9 +59,11 @@ are five presets, each at four grid sizes (64³, 112³, 160³, 320³).
   to skip empty space. The threshold slider hides voxels below a chaos level, so the brick map is
   what keeps the ray count low as the cube thins out. Voxels are read through the sampler with
   REPEAT wrapping, so the periodic volume wraps for free instead of costing compares per read.
-- **The bore:** at a project the cube has a bore cut towards the camera. Rays skip bricks the bore
-  thins below the threshold and jump straight across its hollow (a ray–capsule exit, wider as the
-  threshold rises), so they don't step through the empty middle.
+- **The bore:** at a project the cube has a bore cut towards the camera. What it carves is baked
+  into the occupancy bits below (rebuilt only when the bore, the volume's place or the threshold
+  changes, so every frame of a flight but not while parked), so rays, brick skips and shading read
+  it there instead of working it out per cell. Rays also jump straight across its hollow (a
+  ray–capsule exit, wider as the threshold rises), so they don't step through the empty middle.
 - **Shading:** colour comes from the chaos level and the neighbouring voxels, with soft shadows
   from points on a sun disk. A bit volume of which voxels show at the current threshold (64 bits
   per brick, rebuilt in one draw when the threshold changes) gives each shaded voxel its 3×3×3

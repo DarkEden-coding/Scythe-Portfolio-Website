@@ -5,7 +5,8 @@
 //  FILTER_FS  per voxel, the highest threshold at which it still shows with k showing neighbours,
 //             with the voxel's order (see there) packed in below it
 //  BRICKS_FS  per 4³ block of the volume, its highest level, so rays skip empty blocks
-//  OCCUPANCY_FS which voxels show at the current threshold, a bit each, 4³ bricks per texel, for shading
+//  OCCUPANCY_FS which voxels show at the current threshold, bore included, a bit each, 4³ bricks per
+//             texel, for shading (and with the bore, for rays too)
 //  RENDER_FS  ray-casts the grid and draws visible voxels as lit cubes, studio-lit or sunlit with shadows;
 //             a bore can be cut into them, which is where the project panels float
 //  PROBE_EDGES_FS marks the edges in the probe pass's image and fills in the rest (see RENDER_FS main)
@@ -76,6 +77,18 @@ void main() {
   fragColor = lo << 8 | order(c);
 }`;
 
+// How much of a cell the bore removes: all of it near the axis, less towards the rim, so the wall
+// is ragged where chaotic voxels outlast calm ones. The bore runs from the box centre out along
+// its axis, with a round end at the centre. Cells are in the tiled volume (see RENDER_FS's voxel()).
+// OCCUPANCY_FS and RENDER_FS both use it, so they agree exactly on what the bore takes.
+const CARVED = /* glsl */ `
+float carved(ivec3 cell) {
+  COUNT_CARVED;
+  vec3 q = (vec3(cell) + 0.5 - uOffset) * (2.0 / float(uN)) - 1.0;
+  vec3 off = q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0);
+  return 1.0 - smoothstep(0.85 * uCarve.w, uCarve.w, length(off));
+}`;
+
 export const BRICK = 4; // voxels per brick edge; every grid size is a multiple
 
 // One z-slice of bricks per draw.
@@ -100,13 +113,22 @@ void main() {
 // Which voxels show at the current threshold, one bit each, a brick of 4³ per texel: bit
 // x + 4y + 16z of the brick, z 0..1 in the first word and 2..3 in the second. Shading reads a
 // voxel's whole 3×3×3 neighbourhood (for its neighbour count and ambient occlusion) from it in 8
-// reads instead of 26 to 34. The bore isn't in it; the ray-cast takes that off where it applies.
-// (Rays step through the brick map and uPass instead: testing cells against these bits is no
-// faster than reading uPass through the sampler, and costs the bore's brick test its level.)
+// reads instead of 26 to 34.
 //
 // It is rebuilt whenever the threshold or filter changes, so most frames during playback. To do
 // that in one draw (a draw per layer of a 3D texture costs more than the work), it is a 2D texture:
 // the z-slices of bricks side by side, 2^uAtlasShift to a row (see brickBits in RENDER_FS).
+//
+// Without the bore it holds the volume's n / BRICK bricks per axis, and the ray-cast wraps bricks
+// of the tiled volume onto them. (Rays then step through the brick map and uPass: testing cells
+// against these bits is no faster than reading uPass through the sampler.) With the bore, the bits
+// take off what it carves, so rays, brick skips and shading all read it from here instead of
+// working out carved() for every cell near the bore's wall. What it carves depends on where a cell
+// sits in the box, and a texel can be in the box twice (a cell part-way through a face and its copy
+// at the opposite face), so then the bits cover the box's own bricks: uSize = n / BRICK + 2 from
+// brick uBase of the tiled volume, enough for every cell in the box and its neighbours. They are
+// rebuilt as the bore or the volume moves, which is only while flying to a station or moving the
+// volume there.
 export const OCCUPANCY_FS = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
@@ -114,22 +136,34 @@ precision highp usampler3D;
 uniform usampler3D uPass;
 uniform float uThreshold;
 uniform int uN;
+uniform int uSize;       // bricks per axis
+uniform ivec3 uBase;     // the first brick, in bricks of the tiled volume
 uniform int uAtlasShift;
+uniform vec3 uOffset;    // as in RENDER_FS
+uniform vec4 uCarve;
+uniform float uLevels;
 out uvec2 fragColor;
+#define COUNT_CARVED
+${CARVED}
 
 void main() {
-  int size = uN / ${BRICK};
+  int size = uSize;
   ivec2 px = ivec2(gl_FragCoord.xy);
   ivec2 tile = px / size;
   int slice = tile.x + (tile.y << uAtlasShift);
   if (slice >= size) { fragColor = uvec2(0u); return; } // past the last slice
-  ivec3 origin = ivec3(px - tile * size, slice) * ${BRICK};
+  ivec3 origin = (ivec3(px - tile * size, slice) + uBase) * ${BRICK};
+  // The brick's texels: bricks don't straddle the volume's edge, so wrapping its origin wraps them.
+  ivec3 texel = origin - uN * ivec3(floor(vec3(origin) / float(uN)));
+  bool carving = uCarve.w > 0.0;
   uvec2 bits = uvec2(0u);
   for (int z = 0; z < ${BRICK}; z++)
     for (int y = 0; y < ${BRICK}; y++)
       for (int x = 0; x < ${BRICK}; x++) {
+        ivec3 d = ivec3(x, y, z);
         // The same test as margin() in RENDER_FS, so the two agree exactly.
-        float m = float(texelFetch(uPass, origin + ivec3(x, y, z), 0).r) * (1.0 / 256.0) - uThreshold;
+        float m = float(texelFetch(uPass, texel + d, 0).r) * (1.0 / 256.0) - uThreshold;
+        if (carving) m = m - carved(origin + d) * (uLevels + 1.0);
         if (m >= 0.0) {
           uint bit = 1u << uint(x + 4 * y + 16 * (z & 1));
           if (z < 2) bits.x |= bit; else bits.y |= bit;
@@ -148,8 +182,10 @@ precision highp usampler2D;
 uniform usampler3D uChaos;  // chaos level per voxel
 uniform usampler3D uPass;   // highest threshold each voxel shows at, in 256ths, order included (see FILTER_FS)
 uniform usampler3D uBricks; // highest uPass level per brick of the volume
-uniform usampler2D uOccupancy; // which voxels show, a bit each, per brick of the volume (see OCCUPANCY_FS)
+uniform usampler2D uOccupancy; // which voxels show, a bit each, per brick (see OCCUPANCY_FS)
 uniform int uAtlasShift;      // its z-slices go 2^uAtlasShift to a row
+uniform ivec3 uBoxBricks;     // with the bore, its first brick, in bricks of the tiled volume (see OCCUPANCY_FS)
+uniform int uBoxSize;         // and its bricks per axis
 uniform float uLevels;      // levels - 1: the top chaos level
 uniform int uN;
 uniform vec3 uOffset;       // where the box starts in the tiled volume, in voxels, 0..n
@@ -223,33 +259,37 @@ uint voxel(usampler3D tex, ivec3 cell, int size) {
 }
 float chaos(ivec3 cell) { return float(voxel(uChaos, cell, uN)); }
 
-// How much of a cell the bore removes: all of it near the axis, less towards the rim, so the wall
-// is ragged where chaotic voxels outlast calm ones. The bore runs from the box centre out along
-// its axis, with a round end at the centre.
-float carved(ivec3 cell) {
-  COUNT_CARVED;
-  vec3 q = (vec3(cell) + 0.5 - uOffset) * (2.0 / float(uN)) - 1.0;
-  vec3 off = q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0);
-  return 1.0 - smoothstep(0.85 * uCarve.w, uCarve.w, length(off));
-}
+${CARVED}
 
 // How far above the threshold a voxel sits; it shows at 0 or more.
 float margin(ivec3 cell) {
   float m = float(voxel(uPass, cell, uN)) * (1.0 / 256.0) - uThreshold;
   return CARVING ? m - carved(cell) * (uLevels + 1.0) : m;
 }
-bool shows(ivec3 cell) { return margin(cell) >= 0.0; }
 
 // A brick's occupancy words. The atlas's slices sit side by side, so the sampler can't wrap bricks
 // the way voxel() lets it wrap cells; bricks of the tiled volume run from one before it to the end
-// of its second tile, so a few compares do it.
+// of its second tile, so a few compares do it. With the bore the atlas covers the box's bricks
+// instead, which need no wrapping.
 uvec2 brickBits(ivec3 brick) {
   int size = uN >> ${Math.log2(BRICK)};
   ivec3 b = brick + size * ivec3(lessThan(brick, ivec3(0)));
   b -= size * ivec3(greaterThanEqual(b, ivec3(size)));
   b -= size * ivec3(greaterThanEqual(b, ivec3(size)));
+  if (CARVING) { b = brick - uBoxBricks; size = uBoxSize; }
   ivec2 slice = ivec2(b.z & ((1 << uAtlasShift) - 1), b.z >> uAtlasShift);
   return texelFetch(uOccupancy, b.xy + slice * size, 0).rg;
+}
+
+// A cell's bit in its brick's occupancy words.
+bool cellBit(uvec2 bits, ivec3 cell) {
+  ivec3 a = cell & ${BRICK - 1};
+  return ((a.z < 2 ? bits.x : bits.y) >> uint(a.x + 4 * a.y + 16 * (a.z & 1)) & 1u) != 0u;
+}
+
+// Whether a cell shows. With the bore, the occupancy bits have it already.
+bool shows(ivec3 cell) {
+  return CARVING ? cellBit(brickBits(cell >> ${Math.log2(BRICK)}), cell) : margin(cell) >= 0.0;
 }
 
 // How long ago a showing voxel appeared, 0..1 of the trail: the first trail point it wasn't showing
@@ -263,27 +303,6 @@ float age(ivec3 cell) {
     before = m;
   }
   return 1.0;
-}
-
-// ---------- skipping what the bore takes ----------
-// These work in cell units of the tiled volume, where carved() works in box units, so each leaves
-// BORE_SLACK cells of margin for rounding: they must never skip a cell that carved() lets show.
-const float BORE_SLACK = 0.01;
-
-// How far x is from the bore's axis (the half-line from the box centre out), in cells.
-float boreDistance(vec3 x) {
-  vec3 q = x - (uOffset + 0.5 * float(uN));
-  return length(q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0));
-}
-
-// Whether nothing in a brick shows once the bore is cut: even its highest level is below the
-// threshold after the least the bore takes from any of its cells. Distance from the axis changes no
-// faster than position, and the brick's cell centres lie within 1.5·√3 cells of its centre.
-bool carvedAway(ivec3 brick, float level) {
-  float radius = 0.5 * float(uN) * uCarve.w; // in cells
-  float d = boreDistance(vec3(brick * ${BRICK}) + ${BRICK / 2}.0) + ${(Math.sqrt(3) * (BRICK - 1) / 2).toFixed(4)} + BORE_SLACK;
-  float least = 1.0 - smoothstep(0.85 * radius, radius, d);
-  return level + 1.0 - least * (uLevels + 1.0) <= uThreshold;
 }
 
 // Cells near a box face fade, so as the volume moves, a voxel crossing a face changes over several
@@ -316,19 +335,8 @@ float cornerAO(float side1, float side2, float corner) {
   return (3.0 - side1 - side2 - max(corner, side1 * side2)) / 3.0;
 }
 
-// Away from the bore, whether each of a cell's neighbours shows is just its occupancy bit. (A
-// neighbour is at most √3 cells further out, and how far a cell is from the bore's axis changes no
-// faster than its position; the 0.01 allows for rounding.)
-bool clearOfBore(ivec3 c) {
-  if (!CARVING) return true;
-  vec3 q = (vec3(c) + 0.5 - uOffset) * (2.0 / float(uN)) - 1.0;
-  vec3 off = q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0);
-  return length(off) >= uCarve.w + 1.75 * (2.0 / float(uN)) + 0.01;
-}
-
 // Which of a cell's 3×3×3 neighbourhood shows, bit (dx + 1) + 3(dy + 1) + 9(dz + 1), from the 8
-// bricks around it (it spans at most 2 bricks per axis). Bore left out; see clearOfBore and
-// carveMask.
+// bricks around it (it spans at most 2 bricks per axis).
 uint neighbourhood(ivec3 c) {
   ivec3 lo = c - 1;
   ivec3 b = lo >> ${Math.log2(BRICK)};
@@ -350,21 +358,6 @@ uint neighbourhood(ivec3 c) {
       mask |= (row >> at.x & 7u) << (3 * dy + 9 * dz);
     }
   return mask;
-}
-// A neighbourhood mask with what the bore removes taken off, so it says which neighbours show().
-// Only the cells the bore touches need their margin(): where carved() is 0 a cell's bit is already
-// margin() >= 0, and where it is 1 nothing shows (margin() is below the top level + 1, so taking
-// that off leaves it negative). Near the bore that is a few reads instead of the 26 of testing
-// every neighbour.
-uint carveMask(uint m, ivec3 c) {
-  if (clearOfBore(c)) return m;
-  for (int i = 0; i < 27; i++) {
-    if (i == 13 || (m >> i & 1u) == 0u) continue;
-    ivec3 d = ivec3(i % 3, (i / 3) % 3, i / 9) - 1;
-    float k = carved(c + d);
-    if (k > 0.0 && (k >= 1.0 || !shows(c + d))) m &= ~(1u << i);
-  }
-  return m;
 }
 float bitAt(uint mask, ivec3 d) { return float(mask >> uint(d.x + 3 * d.y + 9 * d.z + 13) & 1u); }
 
@@ -438,6 +431,7 @@ struct Ray {
   float t;       // where it entered the current cell
   float tLimit;  // where it leaves the box
   ivec3 brick;   // the last brick found to hold something that shows
+  uvec2 bits;    // with the bore, its occupancy words
 };
 
 Ray startRay(vec3 p, vec3 rd, ivec3 cell, vec3 normal, float tLimit) {
@@ -476,6 +470,9 @@ void jumpTo(inout Ray r, float t) {
 // capsule: a cylinder around the axis's half-line, with a round end at the box centre. A ray inside
 // it leaves through the side or through the round end, and the side only counts on the outward side
 // of the centre: there the cylinder is the boundary, behind it the sphere is.
+// It works in cell units of the tiled volume, where carved() works in box units, so it leaves
+// BORE_SLACK cells of margin for rounding: it must never skip a cell that carved() lets show.
+const float BORE_SLACK = 0.01;
 float boreHollow(Ray r) {
   float radius = uHollow - ${(Math.sqrt(3) / 2).toFixed(4)} - BORE_SLACK; // in cells
   vec3 o = r.p + r.rd * r.t - (uOffset + 0.5 * float(uN)); // from the box centre
@@ -509,8 +506,16 @@ bool findShowing(inout Ray r) {
         r.brick = ivec3(-1);
         continue;
       }
-      float level = float(voxel(uBricks, brick, uN >> ${Math.log2(BRICK)}));
-      if (level + 1.0 <= uThreshold || CARVING && carvedAway(brick, level)) {
+      // With the bore, the brick's occupancy words say whether anything in it shows, bore included,
+      // and then hold its cells' bits for the steps through it.
+      bool empty;
+      if (CARVING) {
+        r.bits = brickBits(brick);
+        empty = r.bits == uvec2(0u);
+      } else {
+        empty = float(voxel(uBricks, brick, uN >> ${Math.log2(BRICK)})) + 1.0 <= uThreshold;
+      }
+      if (empty) {
         vec3 exitAt = vec3(brick * ${BRICK}) + (r.stepDir * 0.5 + 0.5) * float(${BRICK});
         vec3 tb = (exitAt - r.p) * r.inv;
         float tExit = min(min(tb.x, tb.y), tb.z);
@@ -532,7 +537,7 @@ bool findShowing(inout Ray r) {
       r.brick = brick;
     }
     COUNT_CELL;
-    if (shows(r.cell)) return true;
+    if (CARVING ? cellBit(r.bits, r.cell) : margin(r.cell) >= 0.0) return true;
     stepCell(r);
   }
   return false;
@@ -616,11 +621,11 @@ vec3 shade(Ray r, float dist) {
   vec3 fr = fract(hit);
   vec2 f = vec2(dot(fr, vec3(u)), dot(fr, vec3(v)));
 
-  // Which neighbours show, from the occupancy bits (8 reads), with the bore taken off where it
-  // reaches; that gives the corner occlusion and the neighbour count. (Working it out afresh for
+  // Which neighbours show, from the occupancy bits (8 reads), bore included; that gives the corner
+  // occlusion and the neighbour count. (Working it out afresh for
   // each ray costs less than keeping the last face's result around to share between a pixel's rays:
   // the kept state stays live through the whole traversal.)
-  uint near = carveMask(neighbourhood(r.cell), r.cell);
+  uint near = neighbourhood(r.cell);
   vec4 c = shadingSheet ? vec4(1.0) : faceCornersFromMask(near, r.cell, nI, u, v);
   float count = uColorBy == 0 ? 0.0 : neighboursFromMask(near, r.cell);
   // New voxels glow and cool over a fixed time from when each appeared, so the growing front
