@@ -10,11 +10,12 @@ import type { CubeView } from '../src/cube/view.ts';
 import { cubeUrl } from '../src/presets.ts';
 import { BORE, layout, viewOptions } from '../src/scene.ts';
 import { GpuTimer } from './gpuTimer.ts';
-import { type Scene, SCENES } from './scenes.ts';
+import { type Scene, SCENES, SWEEP } from './scenes.ts';
 
 const FILTER_K = 6; // as main.ts
 const WARMUP = 4; // frames before each block, after a fresh history
 const SETTLE = 16; // still frames before a moving block starts turning (as run.mjs)
+const ALL = [...SCENES, SWEEP];
 
 interface Contestant {
   name: 'a' | 'b';
@@ -66,6 +67,11 @@ async function block(c: Contestant, frames: number): Promise<number> {
   view.samples = scene.samples;
   view.settled = true;
   view.resetHistory();
+  // A sweep starts a few levels above the scene's threshold, which it reaches at the block's end.
+  const sweep = motion?.levelsPerFrame ?? 0;
+  view.threshold = chaosToLevel(scene.lambda) + sweep * frames;
+  view.trail.reset(view.threshold);
+  view.opts.glow = sweep > 0;
   let yaw = pose.yaw;
   for (let i = 0; i < (motion ? SETTLE : WARMUP); i++) draw(c, yaw);
   if (motion) {
@@ -75,6 +81,10 @@ async function block(c: Contestant, frames: number): Promise<number> {
   sync(c);
   for (let i = 0; i < frames; i++) {
     if (motion) yaw += motion.yawPerFrame;
+    if (sweep) {
+      view.threshold -= sweep;
+      view.trail.record(view.threshold, 1 / 60);
+    }
     c.timer.timeFrame(() => draw(c, yaw));
     sync(c); // as run.mjs: on ANGLE's Metal backend a query covers its whole command buffer, so frames go one at a time
   }
@@ -84,10 +94,10 @@ async function block(c: Contestant, frames: number): Promise<number> {
 }
 
 const ab = {
-  scenes: () => SCENES.map(s => s.id),
+  scenes: () => ALL.map(s => s.id),
 
   async setScene(id: string): Promise<void> {
-    const next = SCENES.find(s => s.id === id);
+    const next = ALL.find(s => s.id === id);
     if (!next) throw new Error(`No scene ${id}`);
     scene = next;
     const { resolution, pose, n, preset } = scene;

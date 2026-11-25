@@ -18,7 +18,7 @@ import { acquireGpuLock } from './gpuLock.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const SNAPSHOTS = join(ROOT, 'bench', '.ab');
-const QUICK = ['home-ultra-hi', 'station-ultra-hi', 'orbit-ultra-hi'];
+const QUICK = ['home-ultra-hi', 'station-ultra-hi', 'orbit-ultra-hi', 'sweep-ultra-hi'];
 
 const { values: args } = parseArgs({
   options: {

@@ -42,7 +42,9 @@ It copies `src/` at each revision (`--b` defaults to the working tree) into `ben
 frames (default 20) from each, in alternating order, each block after a fresh history and a few
 warm-up frames. It prints both medians and B's time over A's, the median of the rounds' ratios, with
 their range: a slow stretch slows both blocks of a round, so it mostly cancels. Still scenes are
-timed accumulating, as in a full run; moving ones turn as in a full run. Comparing a revision with
+timed accumulating, as in a full run; moving ones turn as in a full run. One more scene runs only
+here, `sweep-ultra-hi` (in `--quick` too): home playback, the threshold sweeping down with glow on,
+auto-rotating with one ray, so everything that depends on the threshold is rebuilt every frame. Comparing a revision with
 itself comes out within 1%. `--label` keeps the rounds in `results/<label>/ab.json`. Images aren't
 checked; use a full run for that.
 

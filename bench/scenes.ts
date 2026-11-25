@@ -26,6 +26,7 @@ export interface Motion {
   yawPerFrame: number; // radians
   samples: Samples;
   settled: boolean; // see CubeView.settled
+  levelsPerFrame?: number; // the threshold sweeping down, as in playback, with glow on
 }
 
 export interface Scene {
@@ -69,6 +70,14 @@ const BASES: Base[] = [
 export const SCENES: Scene[] = BASES.flatMap(({ name, quality, ...base }) => RESOLUTIONS.map(resolution => ({
   ...base, id: `${name}-${resolution.id}`, n: GRID[quality], resolution,
 })));
+
+/** Only for bench/ab.mjs (its baseline has no images of it): home playback, the threshold sweeping
+ * down at SWEEP_RATE (main.ts) with glow on, auto-rotating, one ray and a short history. Every frame
+ * rebuilds what depends on the threshold. */
+export const SWEEP: Scene = {
+  ...SCENES.find(s => s.id === 'home-ultra-hi')!, id: 'sweep-ultra-hi',
+  motion: { frames: 60, yawPerFrame: 0.14 / 60, samples: 1, settled: false, levelsPerFrame: 8 / 60 },
+};
 
 /** The scenes --quick runs. */
 export const QUICK = ['home-ultra-hi', 'station-ultra-hi', 'orbit-ultra-hi'];
