@@ -96,6 +96,47 @@ void main() {
   fragColor = top >> 8; // the level, without the order
 }`;
 
+// Which voxels show at the current threshold, one bit each, a brick of 4³ per texel: bit
+// x + 4y + 16z of the brick, z 0..1 in the first word and 2..3 in the second. Shading reads a
+// voxel's whole 3×3×3 neighbourhood (for its neighbour count and ambient occlusion) from it in 8
+// reads instead of 26 to 34. The bore isn't in it; the ray-cast takes that off where it applies.
+// (Rays step through the brick map and uPass instead: testing cells against these bits is no
+// faster than reading uPass through the sampler, and costs the bore's brick test its level.)
+//
+// It is rebuilt whenever the threshold or filter changes, so most frames during playback. To do
+// that in one draw (a draw per layer of a 3D texture costs more than the work), it is a 2D texture:
+// the z-slices of bricks side by side, 2^uAtlasShift to a row (see brickBits in RENDER_FS).
+export const OCCUPANCY_FS = /* glsl */ `#version 300 es
+precision highp float;
+precision highp int;
+precision highp usampler3D;
+uniform usampler3D uPass;
+uniform float uThreshold;
+uniform int uN;
+uniform int uAtlasShift;
+out uvec2 fragColor;
+
+void main() {
+  int size = uN / ${BRICK};
+  ivec2 px = ivec2(gl_FragCoord.xy);
+  ivec2 tile = px / size;
+  int slice = tile.x + (tile.y << uAtlasShift);
+  if (slice >= size) { fragColor = uvec2(0u); return; } // past the last slice
+  ivec3 origin = ivec3(px - tile * size, slice) * ${BRICK};
+  uvec2 bits = uvec2(0u);
+  for (int z = 0; z < ${BRICK}; z++)
+    for (int y = 0; y < ${BRICK}; y++)
+      for (int x = 0; x < ${BRICK}; x++) {
+        // The same test as margin() in RENDER_FS, so the two agree exactly.
+        float m = float(texelFetch(uPass, origin + ivec3(x, y, z), 0).r) * (1.0 / 256.0) - uThreshold;
+        if (m >= 0.0) {
+          uint bit = 1u << uint(x + 4 * y + 16 * (z & 1));
+          if (z < 2) bits.x |= bit; else bits.y |= bit;
+        }
+      }
+  fragColor = bits;
+}`;
+
 export const RENDER_FS = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
@@ -106,6 +147,8 @@ precision highp usampler2D;
 uniform usampler3D uChaos;  // chaos level per voxel
 uniform usampler3D uPass;   // highest threshold each voxel shows at, in 256ths, order included (see FILTER_FS)
 uniform usampler3D uBricks; // highest uPass level per brick of the volume
+uniform usampler2D uOccupancy; // which voxels show, a bit each, per brick of the volume (see OCCUPANCY_FS)
+uniform int uAtlasShift;      // its z-slices go 2^uAtlasShift to a row
 uniform float uLevels;      // levels - 1: the top chaos level
 uniform int uN;
 uniform vec3 uOffset;       // where the box starts in the tiled volume, in voxels, 0..n
@@ -188,16 +231,24 @@ float carved(ivec3 cell) {
   return 1.0 - smoothstep(0.85 * uCarve.w, uCarve.w, length(off));
 }
 
-// Set while shading a cell the bore is too far from to touch it or its neighbours, so their dozens
-// of reads skip carved(), which would come out 0.
-bool beyondBore = false;
-
 // How far above the threshold a voxel sits; it shows at 0 or more.
 float margin(ivec3 cell) {
   float m = float(voxel(uPass, cell, uN)) * (1.0 / 256.0) - uThreshold;
-  return CARVING && !beyondBore ? m - carved(cell) * (uLevels + 1.0) : m;
+  return CARVING ? m - carved(cell) * (uLevels + 1.0) : m;
 }
 bool shows(ivec3 cell) { return margin(cell) >= 0.0; }
+
+// A brick's occupancy words. The atlas's slices sit side by side, so the sampler can't wrap bricks
+// the way voxel() lets it wrap cells; bricks of the tiled volume run from one before it to the end
+// of its second tile, so a few compares do it.
+uvec2 brickBits(ivec3 brick) {
+  int size = uN >> ${Math.log2(BRICK)};
+  ivec3 b = brick + size * ivec3(lessThan(brick, ivec3(0)));
+  b -= size * ivec3(greaterThanEqual(b, ivec3(size)));
+  b -= size * ivec3(greaterThanEqual(b, ivec3(size)));
+  ivec2 slice = ivec2(b.z & ((1 << uAtlasShift) - 1), b.z >> uAtlasShift);
+  return texelFetch(uOccupancy, b.xy + slice * size, 0).rg;
+}
 
 // How long ago a showing voxel appeared, 0..1 of the trail: the first trail point it wasn't showing
 // at, interpolated. 1 when it showed the whole trail.
@@ -252,28 +303,6 @@ float presence(ivec3 c) { return clamp(depthIn(c) / FADE, 0.0, 1.0); }
 // if the translucent cells cast shade, faces would dim and brighten as each layer passed.
 float blocking(ivec3 c) { return clamp(depthIn(c) - FADE, 0.0, 1.0); }
 
-// Occupancy for ambient occlusion; outside the box is empty, which is what lights the cut faces.
-float solid(ivec3 c) {
-  float part = blocking(c);
-  return part > 0.0 && shows(c) ? part : 0.0;
-}
-
-// How many of a cell's 26 neighbours show, as a fraction-friendly count. A neighbour that doesn't
-// show only counts as missing as far as it is present: cells beyond the box faces, which are cut
-// away and never drawn, don't count at all, and cells fading in at a face count partly. Otherwise
-// one hidden empty voxel just past a face marks every voxel around it, and those marks pop in and
-// out as the volume moves.
-float neighbours(ivec3 c) {
-  float missing = 0.0;
-  for (int dz = -1; dz <= 1; dz++)
-    for (int dy = -1; dy <= 1; dy++)
-      for (int dx = -1; dx <= 1; dx++) {
-        ivec3 d = ivec3(dx, dy, dz);
-        if (d != ivec3(0) && !shows(c + d)) missing += presence(c + d);
-      }
-  return 26.0 - missing;
-}
-
 vec3 ramp(float t) {
   t = clamp(t, 0.0, 1.0) * 3.0;
   int i = min(int(t), 2);
@@ -285,20 +314,104 @@ float cornerAO(float side1, float side2, float corner) {
   return (3.0 - side1 - side2 - max(corner, side1 * side2)) / 3.0;
 }
 
-// The occlusion at a face's four corners: (-u -v), (+u -v), (-u +v), (+u +v).
-vec4 faceCorners(ivec3 front, ivec3 u, ivec3 v) {
-  float pu = solid(front + u), nu = solid(front - u), pv = solid(front + v), nv = solid(front - v);
-  return vec4(
-    cornerAO(nu, nv, solid(front - u - v)),
-    cornerAO(pu, nv, solid(front + u - v)),
-    cornerAO(nu, pv, solid(front - u + v)),
-    cornerAO(pu, pv, solid(front + u + v)));
+// Away from the bore, whether each of a cell's neighbours shows is just its occupancy bit. (A
+// neighbour is at most √3 cells further out, and how far a cell is from the bore's axis changes no
+// faster than its position; the 0.01 allows for rounding.)
+bool clearOfBore(ivec3 c) {
+  if (!CARVING) return true;
+  vec3 q = (vec3(c) + 0.5 - uOffset) * (2.0 / float(uN)) - 1.0;
+  vec3 off = q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0);
+  return length(off) >= uCarve.w + 1.75 * (2.0 / float(uN)) + 0.01;
 }
 
-vec3 albedo(ivec3 cell, float level) {
+// Which of a cell's 3×3×3 neighbourhood shows, bit (dx + 1) + 3(dy + 1) + 9(dz + 1), from the 8
+// bricks around it (it spans at most 2 bricks per axis). Bore left out; see clearOfBore and
+// carveMask.
+uint neighbourhood(ivec3 c) {
+  ivec3 lo = c - 1;
+  ivec3 b = lo >> ${Math.log2(BRICK)};
+  ivec3 at = lo & ${BRICK - 1};
+  // The bricks by y and z: near (n) and far (f) along each, x pairs in .xy (low words) and .zw.
+  uvec4 nn = uvec4(brickBits(b), brickBits(b + ivec3(1, 0, 0)));
+  uvec4 fn = uvec4(brickBits(b + ivec3(0, 1, 0)), brickBits(b + ivec3(1, 1, 0)));
+  uvec4 nf = uvec4(brickBits(b + ivec3(0, 0, 1)), brickBits(b + ivec3(1, 0, 1)));
+  uvec4 ff = uvec4(brickBits(b + ivec3(0, 1, 1)), brickBits(b + ivec3(1, 1, 1)));
+  uint mask = 0u;
+  for (int dz = 0; dz < 3; dz++)
+    for (int dy = 0; dy < 3; dy++) {
+      int y = at.y + dy, z = at.z + dz;
+      uvec4 pair = z < 4 ? (y < 4 ? nn : fn) : (y < 4 ? nf : ff);
+      int shift = 4 * (y & 3) + 16 * (z & 1);
+      // This row's 4 bits in the brick and in the next along x, then the 3 from lo.x.
+      uvec2 words = (z & 3) < 2 ? pair.xz : pair.yw;
+      uint row = (words.x >> shift & 15u) | (words.y >> shift & 15u) << 4;
+      mask |= (row >> at.x & 7u) << (3 * dy + 9 * dz);
+    }
+  return mask;
+}
+// A neighbourhood mask with what the bore removes taken off, so it says which neighbours show().
+// Only the cells the bore touches need their margin(): where carved() is 0 a cell's bit is already
+// margin() >= 0, and where it is 1 nothing shows (margin() is below the top level + 1, so taking
+// that off leaves it negative). Near the bore that is a few reads instead of the 26 of testing
+// every neighbour.
+uint carveMask(uint m, ivec3 c) {
+  if (clearOfBore(c)) return m;
+  for (int i = 0; i < 27; i++) {
+    if (i == 13 || (m >> i & 1u) == 0u) continue;
+    ivec3 d = ivec3(i % 3, (i / 3) % 3, i / 9) - 1;
+    float k = carved(c + d);
+    if (k > 0.0 && (k >= 1.0 || !shows(c + d))) m &= ~(1u << i);
+  }
+  return m;
+}
+float bitAt(uint mask, ivec3 d) { return float(mask >> uint(d.x + 3 * d.y + 9 * d.z + 13) & 1u); }
+
+// How many of a cell's 26 neighbours show, as a fraction-friendly count, from its neighbourhood
+// mask. A neighbour that doesn't show only counts as missing as far as it is present: cells beyond
+// the box faces, which are cut away and never drawn, don't count at all, and cells fading in at a
+// face count partly. Otherwise one hidden empty voxel just past a face marks every voxel around it,
+// and those marks pop in and out as the volume moves.
+//
+// presence() is the least of a clamp per axis, so here it is worked out per axis for the three
+// layers of the neighbourhood (below, at and above c) rather than for each of the 26.
+vec3 pick(ivec3 d, vec3 below, vec3 here, vec3 above) {
+  return mix(mix(here, below, vec3(lessThan(d, ivec3(0)))), above, vec3(greaterThan(d, ivec3(0))));
+}
+float neighboursFromMask(uint m, ivec3 c) {
+  vec3 lo = vec3(c) - uOffset;
+  vec3 below = clamp(min(lo, float(uN) - lo + 1.0) / FADE, 0.0, 1.0);
+  vec3 here = clamp(min(lo + 1.0, float(uN) - lo) / FADE, 0.0, 1.0);
+  vec3 above = clamp(min(lo + 2.0, float(uN) - lo - 1.0) / FADE, 0.0, 1.0);
+  float missing = 0.0;
+  for (int dz = -1; dz <= 1; dz++)
+    for (int dy = -1; dy <= 1; dy++)
+      for (int dx = -1; dx <= 1; dx++) {
+        ivec3 d = ivec3(dx, dy, dz);
+        vec3 p = pick(d, below, here, above);
+        if (d != ivec3(0) && bitAt(m, d) == 0.0) missing += min(min(p.x, p.y), p.z);
+      }
+  return 26.0 - missing;
+}
+
+// The occlusion at a face's four corners, (-u -v), (+u -v), (-u +v), (+u +v), from the cell's
+// neighbourhood mask. Each neighbour occludes as far as it blocks; outside the box is empty, which
+// is what lights the cut faces. front: the cell in front of the face, relative to c.
+vec4 faceCornersFromMask(uint m, ivec3 c, ivec3 front, ivec3 u, ivec3 v) {
+  #define SOLID(d) (bitAt(m, d) * blocking(c + (d)))
+  float pu = SOLID(front + u), nu = SOLID(front - u), pv = SOLID(front + v), nv = SOLID(front - v);
+  return vec4(
+    cornerAO(nu, nv, SOLID(front - u - v)),
+    cornerAO(pu, nv, SOLID(front + u - v)),
+    cornerAO(nu, pv, SOLID(front - u + v)),
+    cornerAO(pu, pv, SOLID(front + u + v)));
+  #undef SOLID
+}
+
+// count: how many neighbours show (see neighbours()).
+// count: how many neighbours show (see neighboursFromMask).
+vec3 albedo(float level, float count) {
   vec3 plain = uBase * mix(0.6, 1.0, level / uLevels); // calmer voxels sit a little darker
   if (uColorBy == 0) return plain;
-  float count = neighbours(cell);
   vec3 byNeighbours = ramp((count - 1.0) / 12.0);
   vec3 byChaos = ramp(level / uLevels);
   if (uColorBy == 1) return byNeighbours;
@@ -465,19 +578,18 @@ float sunlight(vec3 o) {
 bool shadingSheet = false;
 
 // Shadow rays are the costly part of sun lighting, so a pixel casts at most two; with four rays,
-// each is shared by a pair (reset in main()). Each aims at its own point on the sun disk.
-float sharedSunlight = -1.0;
-
-// The last face shaded. A pixel's rays mostly land on the same face, so the colour and corner
-// occlusion, which take dozens of voxel reads, are worked out once and shared; each ray only adds
-// what changes across the face.
-bool faceCached = false;
-ivec3 cachedCell;
-vec3 cachedNormal;
-bool cachedSheet;
-vec3 cachedSurface;
-float cachedHeat;
-vec4 cachedCorners;
+// each is shared by a pair. Each aims at its own point on the sun disk.
+//
+// Sunlight only scales a part of each surface's colour, and all the surfaces a pair of rays shades
+// share one shadow ray, so it is cast after they are traced (in main()), not from inside shade():
+// shade() returns the sunlit part apart (shadeSunlit, which trace() blends into traceSunlit like
+// the rest) and notes where the shadow ray starts, the first surface facing the sun. That way the
+// shadow ray's traversal doesn't run while the camera ray's is still live, which leaves the GPU
+// fewer registers to hold at once.
+vec3 shadeSunlit;
+vec3 traceSunlit;
+bool sunPending = false;
+vec3 sunFrom;
 
 // Which voxel faces a ray shaded, hashed in order. Neighbouring pixels with the same id show the
 // same faces, so between them the image is smooth; a different id means an edge between them.
@@ -495,37 +607,32 @@ vec3 shade(Ray r, float dist) {
   vec3 fr = fract(hit);
   vec2 f = vec2(dot(fr, vec3(u)), dot(fr, vec3(v)));
 
-  if (!faceCached || r.cell != cachedCell || r.normal != cachedNormal || shadingSheet != cachedSheet) {
-    faceCached = true;
-    cachedCell = r.cell;
-    cachedNormal = r.normal;
-    cachedSheet = shadingSheet;
-    // Neighbours' centres are within √3 cells of this one's.
-    beyondBore = CARVING && boreDistance(vec3(r.cell) + 0.5) >= 0.5 * float(uN) * uCarve.w + 2.0;
-    cachedCorners = shadingSheet ? vec4(1.0) : faceCorners(r.cell + nI, u, v);
-    // New voxels glow and cool over a fixed time from when each appeared, so the growing front
-    // reads and, once the threshold stops, the last of them go out one by one.
-    cachedHeat = uGlow ? 1.0 - smoothstep(0.0, 1.0, age(r.cell)) : 0.0;
-    vec3 hot = mix(vec3(1.0, 0.93, 0.86), uAccent, smoothstep(0.0, 0.12, 1.0 - cachedHeat));
-    cachedSurface = mix(albedo(r.cell, chaos(r.cell)), hot, 0.6 * cachedHeat);
-    beyondBore = false;
-  }
-  vec4 c = cachedCorners;
+  // Which neighbours show, from the occupancy bits (8 reads), with the bore taken off where it
+  // reaches; that gives the corner occlusion and the neighbour count. (Working it out afresh for
+  // each ray costs less than keeping the last face's result around to share between a pixel's rays:
+  // the kept state stays live through the whole traversal.)
+  uint near = carveMask(neighbourhood(r.cell), r.cell);
+  vec4 c = shadingSheet ? vec4(1.0) : faceCornersFromMask(near, r.cell, nI, u, v);
+  float count = uColorBy == 0 ? 0.0 : neighboursFromMask(near, r.cell);
+  // New voxels glow and cool over a fixed time from when each appeared, so the growing front
+  // reads and, once the threshold stops, the last of them go out one by one.
+  float heat = uGlow ? 1.0 - smoothstep(0.0, 1.0, age(r.cell)) : 0.0;
+  vec3 hot = mix(vec3(1.0, 0.93, 0.86), uAccent, smoothstep(0.0, 0.12, 1.0 - heat));
+  vec3 surface = mix(albedo(chaos(r.cell), count), hot, 0.6 * heat);
   float ao = mix(mix(c.x, c.y, f.x), mix(c.z, c.w, f.x), f.y);
-  float heat = cachedHeat;
-  vec3 surface = cachedSurface;
 
   vec3 col;
   if (uSun) {
-    // Direct sun with cast shadows, plus sky light that ambient occlusion darkens.
+    // Direct sun with cast shadows (see shadeSunlit), plus sky light that ambient occlusion darkens.
     float facing = max(dot(r.normal, uSunDir), 0.0);
-    if (facing > 0.0 && sharedSunlight < 0.0) sharedSunlight = sunlight(hit + r.normal * 1e-3);
-    float lit = facing > 0.0 ? sharedSunlight : 0.0;
+    if (facing > 0.0 && !sunPending) { sunPending = true; sunFrom = hit + r.normal * 1e-3; }
+    shadeSunlit = surface * SUN_COLOR * facing;
     vec3 sky = SKY_COLOR * (0.55 + 0.45 * r.normal.y) * mix(0.25, 1.0, ao);
-    col = surface * (SUN_COLOR * facing * lit + sky);
+    col = surface * sky;
   } else {
     float diffuse = max(dot(r.normal, STUDIO_LIGHT), 0.0);
     float sky = 0.5 + 0.5 * r.normal.y;
+    shadeSunlit = vec3(0.0);
     col = surface * (0.30 + 0.55 * diffuse + 0.25 * sky) * mix(0.32, 1.0, ao);
   }
 
@@ -535,13 +642,16 @@ vec3 shade(Ray r, float dist) {
   vec2 edge = min(f, 1.0 - f);
   float px = 0.5 / voxelPx; // half a pixel, in voxels
   float seam = mix(0.84, 1.0, smoothstep(0.08 - px, 0.08 + px, min(edge.x, edge.y)));
-  col *= mix(1.0, seam, smoothstep(3.0, 9.0, voxelPx));
+  float seamFade = mix(1.0, seam, smoothstep(3.0, 9.0, voxelPx));
+  col *= seamFade;
+  shadeSunlit *= seamFade;
   return col + uAccent * 0.3 * heat + vec3(1.0, 0.85, 0.7) * 0.2 * pow(heat, 6.0);
 }
 
 // One camera ray through a point on the screen, in pixels; premultiplied colour and coverage.
 vec4 trace(vec2 pixel, vec2 sunOffset) {
   faces = 2166136261u;
+  traceSunlit = vec3(0.0);
   vec2 uv = (pixel * 2.0 - uResolution) / uResolution.y - uShift;
   vec3 rd = normalize(uForward * uFocal + uRight * uv.x + uUp * uv.y);
   vec3 ro = uEye;
@@ -594,6 +704,7 @@ vec4 trace(vec2 pixel, vec2 sunOffset) {
       Ray r = startRay(p, rd, cell, outerNormal, tLimit); // lit where the ray enters, like the face
       if (firstDepth < 0.0) firstDepth = tStart;
       col += (1.0 - alpha) * a * shade(r, tStart);
+      traceSunlit += (1.0 - alpha) * a * shadeSunlit;
       alpha += (1.0 - alpha) * a;
       if (alpha > 0.995) { shadingSheet = false; return vec4(col, alpha); }
     }
@@ -618,6 +729,7 @@ vec4 trace(vec2 pixel, vec2 sunOffset) {
       float a = presence(r.cell);
       if (firstDepth < 0.0) firstDepth = tStart + r.t * 2.0 / n;
       col += (1.0 - alpha) * a * shade(r, tStart + r.t * 2.0 / n);
+      traceSunlit += (1.0 - alpha) * a * shadeSunlit;
       alpha += (1.0 - alpha) * a;
       if (alpha > 0.995) break;
       stepCell(r);
@@ -676,16 +788,20 @@ void main() {
   float turn = gradientNoise(gl_FragCoord.xy + vec2(47.0, 17.0)) * 6.2831853;
   vec2 sunPoint = vec2(0.0);
   int aimed = 0;
+  vec3 sunlit = vec3(0.0); // the sunlit part of the shadow ray's rays so far (see shadeSunlit)
   for (int i = 0; i < rays; i++) {
-    if (rays < 4 || i % 2 == 0) {
-      sharedSunlight = -1.0;
-      sunPoint = diskPoint(first + aimed++, turn);
-    }
+    if (rays < 4 || i % 2 == 0) sunPoint = diskPoint(first + aimed++, turn);
     vec2 offset = uMode == 1 ? vec2(0.0) : SAMPLES[rays - 1 + i];
     sum += trace(gl_FragCoord.xy + uJitter + offset, sunPoint);
     if (i == 0 && uMode != 2) {
       fragDepth = firstDepth;
       fragFaces = faces;
+    }
+    sunlit += traceSunlit;
+    if (rays < 4 || i % 2 == 1) {
+      if (sunPending) sum.rgb += sunlit * sunlight(sunFrom);
+      sunPending = false;
+      sunlit = vec3(0.0);
     }
   }
   fragColor = sum / float(counted);

@@ -9,14 +9,14 @@ import { createProgram, hexToRgb, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { ProbeTarget } from './probe.ts';
 import { cubeRect } from './screenRect.ts';
-import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, PROBE_EDGES_FS, RENDER_FS } from './shaders.ts';
+import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, OCCUPANCY_FS, PROBE_EDGES_FS, RENDER_FS } from './shaders.ts';
 import { ThresholdTrail, TRAIL_SAMPLES } from './thresholdTrail.ts';
 import { ProgramVariants } from './variants.ts';
 
 export type ColorBy = 'plain' | 'neighbours' | 'chaos' | 'both';
 export type Samples = 1 | 2 | 4;
 /** The GPU passes of a draw, for profiling (see CubeView.onPass). */
-export type Pass = 'edges' | 'bricks' | 'probe' | 'refine' | 'render' | 'resolve' | 'present';
+export type Pass = 'edges' | 'bricks' | 'occupancy' | 'probe' | 'refine' | 'render' | 'resolve' | 'present';
 
 export interface ViewOptions {
   glow: boolean; // whether new voxels glow
@@ -43,6 +43,18 @@ const VOXELS_PER_FRAME = 1 << 22;
 // accumulating: the refine pass needs the accumulator's stencil buffer.
 const PROBE_FROM_PX = 4;
 
+// The occupancy texture's layout (see OCCUPANCY_FS): its n / BRICK z-slices of bricks side by side,
+// a power of two to a row (so the ray-cast finds a slice with a mask and a shift), as square as that
+// allows: 16 × 5 slices of 80² for Ultra, 1280 × 400 texels.
+function atlasShift(n: number): number {
+  return Math.ceil(Math.log2(Math.sqrt(n / BRICK)));
+}
+function atlasSize(n: number): [number, number] {
+  const size = n / BRICK;
+  const perRow = 1 << atlasShift(n);
+  return [size * perRow, size * Math.ceil(size / perRow)];
+}
+
 // One cube's textures.
 interface Volume {
   n: number;
@@ -50,6 +62,8 @@ interface Volume {
   filtered: WebGLTexture; // highest threshold each voxel passes the filter at, with its order (see FILTER_FS)
   bricks: WebGLTexture; // highest level per brick of the volume
   bricksStale: boolean;
+  occupancy: WebGLTexture; // which voxels show, a bit each, per brick of the volume (see OCCUPANCY_FS)
+  occupancyFor: number | null; // the threshold it was built for; null when stale
 }
 
 // A cube on its way in: slices uploaded and filtered so far.
@@ -91,6 +105,7 @@ export class CubeView {
   private passHook: ((pass: Pass | null) => void) | null = null;
   private filter: Program;
   private brickPass: Program;
+  private occupancyPass: Program;
   private render: ProgramVariants;
   private edges: Program;
   private probeEdges: Program;
@@ -124,6 +139,7 @@ export class CubeView {
     this.trail = new ThresholdTrail(opts.glowFor, this.threshold);
     this.filter = createProgram(gl, FULLSCREEN_VS, FILTER_FS);
     this.brickPass = createProgram(gl, FULLSCREEN_VS, BRICKS_FS);
+    this.occupancyPass = createProgram(gl, FULLSCREEN_VS, OCCUPANCY_FS);
     this.render = new ProgramVariants(gl, FULLSCREEN_VS, RENDER_FS);
     this.edges = createProgram(gl, EDGES_VS, EDGES_FS);
     this.probeEdges = createProgram(gl, FULLSCREEN_VS, PROBE_EDGES_FS);
@@ -173,7 +189,8 @@ export class CubeView {
    * same size, being overwritten, is hidden. */
   load(bytes: Uint8Array, n: number): Promise<void> {
     const volume = (this.incoming?.volume.n === n ? this.incoming.volume : this.volume?.n === n ? this.volume : null)
-      ?? { n, chaos: this.texture(n, 'R8UI'), filtered: this.texture(n, 'R16UI'), bricks: this.texture(n / BRICK, 'R8UI'), bricksStale: true };
+      ?? { n, chaos: this.texture(n, 'R8UI'), filtered: this.texture(n, 'R16UI'), bricks: this.texture(n / BRICK, 'R8UI'), bricksStale: true,
+        occupancy: this.occupancyTexture(n), occupancyFor: null };
     if (this.incoming) {
       const old = this.incoming.volume;
       if (old !== volume && old !== this.volume) this.deleteVolume(old);
@@ -187,7 +204,10 @@ export class CubeView {
     this.volumeVersion++;
     if (this.incoming) this.incoming.filtered = 0;
     if (this.volume && this.volume !== this.incoming?.volume) this.refreshFilter(this.volume, 0, this.volume.n);
-    if (this.volume) this.volume.bricksStale = true;
+    if (this.volume) {
+      this.volume.bricksStale = true;
+      this.volume.occupancyFor = null;
+    }
   }
 
   draw(camera: CameraBasis, pixelWidth: number, pixelHeight: number, shift: [number, number], focal: number): void {
@@ -242,16 +262,23 @@ export class CubeView {
         this.passHook?.('bricks');
         this.refreshBricks(volume);
         volume.bricksStale = false;
-        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-        gl.viewport(0, 0, pixelWidth, pixelHeight);
-        gl.enable(gl.BLEND);
       }
+      if (volume.occupancyFor !== this.threshold) {
+        this.passHook?.('occupancy');
+        this.refreshOccupancy(volume);
+        volume.occupancyFor = this.threshold;
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.viewport(0, 0, pixelWidth, pixelHeight);
+      gl.enable(gl.BLEND);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_3D, volume.chaos);
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_3D, volume.filtered);
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_3D, volume.bricks);
+      gl.activeTexture(gl.TEXTURE7);
+      gl.bindTexture(gl.TEXTURE_2D, volume.occupancy);
       const useRender = (mode: RenderMode): void => this.useRender(render, mode, n, camera, pixelWidth, pixelHeight, shift, focal, temporal);
 
       // How wide a voxel at the cube's centre is on screen, in pixels.
@@ -337,6 +364,8 @@ export class CubeView {
     gl.uniform1i(u.uChaos, 0);
     gl.uniform1i(u.uPass, 1);
     gl.uniform1i(u.uBricks, 2);
+    gl.uniform1i(u.uOccupancy, 7);
+    gl.uniform1i(u.uAtlasShift, atlasShift(n));
     gl.uniform1i(u.uProbeColor, 3);
     gl.uniform1i(u.uProbeDepth, 4);
     gl.uniform1f(u.uLevels, CHAOS.levels - 1);
@@ -414,6 +443,7 @@ export class CubeView {
     if (this.volume && this.volume !== job.volume) this.deleteVolume(this.volume);
     this.volume = job.volume;
     this.volume.bricksStale = true;
+    this.volume.occupancyFor = null;
     this.incoming = null;
     job.done();
   }
@@ -459,7 +489,39 @@ export class CubeView {
     }
   }
 
+  /** Rebuilds which voxels show at the threshold (see OCCUPANCY_FS), in one draw. The threshold
+   * sweeps during playback, so this runs most frames then. */
+  private refreshOccupancy(volume: Volume): void {
+    const { gl } = this;
+    const { n } = volume;
+    const u = this.occupancyPass.uniforms;
+    const [width, height] = atlasSize(n);
+    gl.disable(gl.BLEND);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.filterTarget);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, volume.occupancy, 0);
+    gl.viewport(0, 0, width, height);
+    gl.useProgram(this.occupancyPass.program);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_3D, volume.filtered);
+    gl.uniform1i(u.uPass, 0);
+    gl.uniform1f(u.uThreshold, this.threshold);
+    gl.uniform1i(u.uN, n);
+    gl.uniform1i(u.uAtlasShift, atlasShift(n));
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  private occupancyTexture(n: number): WebGLTexture {
+    const { gl } = this;
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RG32UI, ...atlasSize(n));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    return texture;
+  }
+
   private deleteVolume(volume: Volume): void {
+    this.gl.deleteTexture(volume.occupancy);
     this.gl.deleteTexture(volume.chaos);
     this.gl.deleteTexture(volume.filtered);
     this.gl.deleteTexture(volume.bricks);
