@@ -248,10 +248,15 @@ export class CubeView {
     this.trail.sample(this.trailPoints);
     // The pass stays a uniform: as a constant it saves little, and the compiler then treats the
     // probe and refine passes' floating point differently enough to move soft shadow edges.
-    const render = this.render.get({
+    const settings = {
       uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
       uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
-    });
+    };
+    const render = this.render.get(settings);
+    // The site draws one ray while the cube moves and two once it's still. Compiling the other
+    // count's variant only when the cube first settles cost two frames of 80-130 ms on Apple M5
+    // (the compile competes with drawing); started now, it compiles while the cube loads.
+    this.render.prepare({ ...settings, uSamples: this.samples === 1 ? 2 : 1 });
     // The passes below leave the pixels outside the cube alone (see screenRect.ts). The scissor
     // is off for the clears: the targets must be clear everywhere.
     const rect = cubeRect(camera, pixelWidth, pixelHeight, shift, focal);

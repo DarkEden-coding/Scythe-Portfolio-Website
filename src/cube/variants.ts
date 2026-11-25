@@ -30,21 +30,36 @@ export class ProgramVariants {
   }
 
   /** The variant for these settings if it's ready, otherwise the generic program. */
-  get(defines: Record<string, string | number | boolean>): Program {
+  get(defines: Defines): Program {
     if (!this.parallel && !this.waitForCompile) return this.generic;
-    const key = Object.entries(defines).map(([name, value]) => `#define ${name} ${value}\n`).join('');
-    let variant = this.variants.get(key);
-    if (!variant) {
-      // The defines go straight after the #version line, which has to come first.
-      const fs = this.fs.replace('\n', `\n${key}`);
-      variant = startProgram(this.gl, this.vs, fs);
-      this.variants.set(key, variant);
-    }
+    const variant = this.start(defines);
     if (!(variant instanceof WebGLProgram)) return variant;
     // Unlike LINK_STATUS, this answers without waiting for the compile.
     if (!this.waitForCompile && !this.gl.getProgramParameter(variant, this.parallel!.COMPLETION_STATUS_KHR)) return this.generic;
     const program = finishProgram(this.gl, variant);
-    this.variants.set(key, program);
+    this.variants.set(key(defines), program);
     return program;
   }
+
+  /** Starts compiling the variant for these settings in the background, if it isn't already, so
+   * it's ready by the time it's asked for. Does nothing where variants aren't compiled in the
+   * background. */
+  prepare(defines: Defines): void {
+    if (this.parallel && !this.waitForCompile) this.start(defines);
+  }
+
+  private start(defines: Defines): WebGLProgram | Program {
+    const k = key(defines);
+    let variant = this.variants.get(k);
+    if (!variant) {
+      // The defines go straight after the #version line, which has to come first.
+      variant = startProgram(this.gl, this.vs, this.fs.replace('\n', `\n${k}`));
+      this.variants.set(k, variant);
+    }
+    return variant;
+  }
 }
+
+type Defines = Record<string, string | number | boolean>;
+
+const key = (defines: Defines): string => Object.entries(defines).map(([name, value]) => `#define ${name} ${value}\n`).join('');
