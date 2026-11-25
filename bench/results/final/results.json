@@ -1,8 +1,8 @@
 {
   "label": "final",
-  "commit": "33440a9",
+  "commit": "1cf86e8",
   "dirty": false,
-  "date": "2026-11-25T07:02:28.632Z",
+  "date": "2026-11-25T08:29:04.901Z",
   "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)",
   "timerQuery": true,
   "browserArgs": [
@@ -27,30 +27,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 7.353,
-          "p90": 7.644,
-          "mean": 7.424,
-          "min": 7.197
+          "median": 5.838,
+          "p90": 5.977,
+          "mean": 5.884,
+          "min": 5.713
         },
         "wall": {
-          "median": 8.1,
-          "p90": 8.4,
-          "mean": 8.142,
-          "min": 7.8
+          "median": 6.2,
+          "p90": 6.4,
+          "mean": 6.253,
+          "min": 6
         },
         "passes": {
-          "edges": 0.8000000715255737,
-          "render": 6.900000095367432,
-          "resolve": 0.5999999046325684,
-          "present": 0.9000000953674316
+          "edges": 0.2999999523162842,
+          "render": 5.799999952316284,
+          "resolve": 0.6000000238418579,
+          "present": 0.3999999761581421
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 520018,
-        "noiseMean": 0.6358169394436977,
-        "noiseP99": 4.97,
-        "flickerPct": 0.013007791488536386
+        "pixels": 521190,
+        "noiseMean": 0.6185467577303668,
+        "noiseP99": 4.9,
+        "flickerPct": 0.010402019554152174
       },
       "images": [
         "home-ultra-hi.single-s1.png",
@@ -67,30 +67,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 2.298,
-          "p90": 2.407,
-          "mean": 2.27,
-          "min": 2.005
+          "median": 1.846,
+          "p90": 1.942,
+          "mean": 1.823,
+          "min": 1.584
         },
         "wall": {
-          "median": 2.6,
-          "p90": 2.9,
-          "mean": 2.643,
-          "min": 2.3
+          "median": 2.2,
+          "p90": 2.3,
+          "mean": 2.158,
+          "min": 1.8
         },
         "passes": {
-          "edges": 0.3999999761581421,
-          "render": 2.5,
+          "edges": 0.30000007152557373,
+          "render": 2.0999999046325684,
           "resolve": 0.3999999761581421,
-          "present": 0.3999999761581421
+          "present": 0.30000007152557373
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 110878,
-        "noiseMean": 0.917474117122623,
-        "noiseP99": 6.21,
-        "flickerPct": 0.017715739049096433
+        "pixels": 111383,
+        "noiseMean": 0.8979429072286353,
+        "noiseP99": 6.15,
+        "flickerPct": 0.016032197783452464
       },
       "images": [
         "home-ultra-lo.single-s1.png",
@@ -107,30 +107,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 4.959,
-          "p90": 5.091,
-          "mean": 4.975,
-          "min": 4.839
+          "median": 3.818,
+          "p90": 3.875,
+          "mean": 3.833,
+          "min": 3.742
         },
         "wall": {
-          "median": 5.6,
-          "p90": 5.8,
-          "mean": 5.63,
-          "min": 5.4
+          "median": 4.2,
+          "p90": 4.3,
+          "mean": 4.165,
+          "min": 4
         },
         "passes": {
-          "edges": 0.8999999761581421,
-          "render": 4.5,
-          "resolve": 0.5,
-          "present": 0.8999999761581421
+          "edges": 0.3999999761581421,
+          "render": 3.700000047683716,
+          "resolve": 0.6000000238418579,
+          "present": 0.30000007152557373
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 510678,
-        "noiseMean": 0.4440760378575996,
-        "noiseP99": 3.88,
-        "flickerPct": 0.009706983377280511
+        "pixels": 511867,
+        "noiseMean": 0.4217446723535588,
+        "noiseP99": 3.82,
+        "flickerPct": 0.006391169134616163
       },
       "images": [
         "home-high-hi.single-s1.png",
@@ -147,30 +147,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 1.467,
-          "p90": 1.574,
-          "mean": 1.473,
-          "min": 1.303
+          "median": 1.168,
+          "p90": 1.259,
+          "mean": 1.159,
+          "min": 0.984
         },
         "wall": {
-          "median": 1.9,
-          "p90": 2.1,
-          "mean": 1.875,
-          "min": 1.6
+          "median": 1.5,
+          "p90": 1.7,
+          "mean": 1.522,
+          "min": 1.3
         },
         "passes": {
-          "edges": 0.3999999761581421,
-          "render": 1.6999999284744263,
-          "resolve": 0.3999999761581421,
-          "present": 0.3999999761581421
+          "edges": 0.2999999523162842,
+          "render": 1.399999976158142,
+          "resolve": 0.30000007152557373,
+          "present": 0.2999999523162842
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 108985,
-        "noiseMean": 0.7111898540717521,
-        "noiseP99": 5.36,
-        "flickerPct": 0.019399786340190982
+        "pixels": 109492,
+        "noiseMean": 0.6752238922965579,
+        "noiseP99": 5.24,
+        "flickerPct": 0.014417230743537688
       },
       "images": [
         "home-high-lo.single-s1.png",
@@ -187,30 +187,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 5.362,
-          "p90": 5.485,
-          "mean": 5.364,
-          "min": 5.221
+          "median": 4.391,
+          "p90": 4.592,
+          "mean": 4.408,
+          "min": 4.206
         },
         "wall": {
-          "median": 6,
-          "p90": 6.1,
-          "mean": 6.018,
-          "min": 5.8
+          "median": 4.7,
+          "p90": 5,
+          "mean": 4.763,
+          "min": 4.5
         },
         "passes": {
-          "edges": 0.8999999761581421,
-          "render": 4.899999976158142,
+          "edges": 0.2999999523162842,
+          "render": 4.299999952316284,
           "resolve": 0.6000000238418579,
-          "present": 0.8999999761581421
+          "present": 0.30000007152557373
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 520018,
-        "noiseMean": 0.5135252877892202,
+        "pixels": 521190,
+        "noiseMean": 0.5123727998616292,
         "noiseP99": 3.34,
-        "flickerPct": 0.0013873146149336588
+        "flickerPct": 0.001384194960433952
       },
       "images": [
         "studio-ultra-hi.single-s1.png",
@@ -227,30 +227,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 1.65,
-          "p90": 1.755,
-          "mean": 1.625,
-          "min": 1.44
+          "median": 1.292,
+          "p90": 1.43,
+          "mean": 1.288,
+          "min": 1.132
         },
         "wall": {
-          "median": 2.1,
-          "p90": 2.3,
-          "mean": 2.07,
-          "min": 1.8
+          "median": 1.6,
+          "p90": 1.9,
+          "mean": 1.648,
+          "min": 1.3
         },
         "passes": {
-          "edges": 0.3999999761581421,
-          "render": 1.7000000476837158,
+          "edges": 0.2999999523162842,
+          "render": 1.5,
           "resolve": 0.3999999761581421,
-          "present": 0.3999999761581421
+          "present": 0.2999999523162842
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 110878,
-        "noiseMean": 0.8163233497936968,
+        "pixels": 111383,
+        "noiseMean": 0.8125576239112947,
         "noiseP99": 4.49,
-        "flickerPct": 0.0019970469473526886
+        "flickerPct": 0.0019879925251481056
       },
       "images": [
         "studio-ultra-lo.single-s1.png",
@@ -267,30 +267,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 46.108,
-          "p90": 54.529,
-          "mean": 47.155,
-          "min": 41.35
+          "median": 26.284,
+          "p90": 36.23,
+          "mean": 28.33,
+          "min": 23.978
         },
         "wall": {
-          "median": 46.9,
-          "p90": 55.6,
-          "mean": 48.017,
-          "min": 42.1
+          "median": 26.7,
+          "p90": 36.8,
+          "mean": 28.745,
+          "min": 24.3
         },
         "passes": {
-          "edges": 0.8999999761581421,
-          "render": 42.799999952316284,
-          "resolve": 1.2999999523162842,
-          "present": 1.2000000476837158
+          "edges": 0.2999999523162842,
+          "render": 29.300000071525574,
+          "resolve": 1.399999976158142,
+          "present": 0.6000000238418579
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 2506559,
-        "noiseMean": 0.2691079160333622,
+        "pixels": 2507726,
+        "noiseMean": 0.2689666055212306,
         "noiseP99": 2.77,
-        "flickerPct": 0.0007152662845187936
+        "flickerPct": 0.000717781767226563
       },
       "images": [
         "station-ultra-hi.single-s1.png",
@@ -307,30 +307,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 10.864,
-          "p90": 11.542,
-          "mean": 10.924,
-          "min": 10.362
+          "median": 6.604,
+          "p90": 7.37,
+          "mean": 6.669,
+          "min": 6.014
         },
         "wall": {
-          "median": 11.3,
-          "p90": 11.9,
-          "mean": 11.327,
-          "min": 10.7
+          "median": 7,
+          "p90": 7.7,
+          "mean": 7.04,
+          "min": 6.3
         },
         "passes": {
-          "edges": 0.3999999761581421,
-          "render": 10.800000071525574,
-          "resolve": 0.5,
-          "present": 0.5
+          "edges": 0.30000007152557373,
+          "render": 7.899999976158142,
+          "resolve": 0.6000000238418579,
+          "present": 0.3999999761581421
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 527071,
-        "noiseMean": 0.4239182880611939,
+        "pixels": 527598,
+        "noiseMean": 0.4234813739787497,
         "noiseP99": 3.63,
-        "flickerPct": 0.0018701736307144307
+        "flickerPct": 0.001881844023019691
       },
       "images": [
         "station-ultra-lo.single-s1.png",
@@ -347,31 +347,31 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 19.641,
-          "p90": 19.933,
-          "mean": 19.681,
-          "min": 19.466
+          "median": 15.977,
+          "p90": 16.719,
+          "mean": 16.1,
+          "min": 15.426
         },
         "wall": {
-          "median": 20.4,
-          "p90": 20.7,
-          "mean": 20.467,
-          "min": 20.1
+          "median": 16.4,
+          "p90": 17.2,
+          "mean": 16.508,
+          "min": 15.7
         },
         "passes": {
-          "edges": 0.8999999761581421,
-          "probe": 7.700000047683716,
-          "refine": 11.300000071525574,
-          "resolve": 1.1999999284744263,
-          "present": 1.1999999284744263
+          "edges": 0.3999999761581421,
+          "probe": 6.700000047683716,
+          "refine": 9.399999976158142,
+          "resolve": 1.2999999523162842,
+          "present": 0.6000000238418579
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 2445530,
-        "noiseMean": 0.37045915161131376,
+        "pixels": 2446626,
+        "noiseMean": 0.3702903625903835,
         "noiseP99": 5.35,
-        "flickerPct": 0.005686760275745077
+        "flickerPct": 0.005684212812723668
       },
       "images": [
         "closeup-medium-hi.single-s1.png",
@@ -388,31 +388,31 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 5.402,
-          "p90": 5.464,
-          "mean": 5.412,
-          "min": 5.329
+          "median": 4.303,
+          "p90": 4.595,
+          "mean": 4.348,
+          "min": 4.239
         },
         "wall": {
-          "median": 5.8,
-          "p90": 5.9,
-          "mean": 5.817,
-          "min": 5.7
+          "median": 4.7,
+          "p90": 5,
+          "mean": 4.713,
+          "min": 4.5
         },
         "passes": {
-          "edges": 0.3999999761581421,
-          "probe": 2.100000023841858,
-          "refine": 3.600000023841858,
+          "edges": 0.2999999523162842,
+          "probe": 1.899999976158142,
+          "refine": 3.0999999046325684,
           "resolve": 0.5,
-          "present": 0.5
+          "present": 0.30000007152557373
         }
       },
       "temporal": {
         "frames": 16,
-        "pixels": 514779,
-        "noiseMean": 0.3815741638693489,
-        "noiseP99": 4.16,
-        "flickerPct": 0.0030942543166235276
+        "pixels": 515272,
+        "noiseMean": 0.38120963487840526,
+        "noiseP99": 4.15,
+        "flickerPct": 0.0030912938076533224
       },
       "images": [
         "closeup-medium-lo.single-s1.png",
@@ -429,30 +429,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 4.545,
-          "p90": 5.607,
-          "mean": 4.716,
-          "min": 4.07
+          "median": 3.446,
+          "p90": 3.617,
+          "mean": 3.81,
+          "min": 3.147
         },
         "wall": {
-          "median": 5.2,
-          "p90": 6.3,
-          "mean": 5.412,
-          "min": 4.7
+          "median": 3.8,
+          "p90": 4,
+          "mean": 5.335,
+          "min": 3.4
         },
         "passes": {
-          "edges": 0.8999999761581421,
-          "render": 4.200000047683716,
-          "resolve": 0.6000000238418579,
-          "present": 0.8999999761581421
+          "edges": 0.30000007152557373,
+          "render": 3.399999976158142,
+          "resolve": 0.5,
+          "present": 0.3999999761581421
         }
       },
       "temporal": {
         "frames": 60,
-        "pixels": 697562,
-        "noiseMean": 28.688938344908873,
-        "noiseP99": 89.51,
-        "flickerPct": 15.329563092105321
+        "pixels": 705615,
+        "noiseMean": 28.375063493994052,
+        "noiseP99": 89.43,
+        "flickerPct": 15.107036732691242
       },
       "images": [
         "orbit-ultra-hi.frame-00.png",
@@ -526,30 +526,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 1.421,
-          "p90": 2.068,
-          "mean": 1.5,
-          "min": 1.156
+          "median": 1.06,
+          "p90": 1.18,
+          "mean": 1.054,
+          "min": 0.861
         },
         "wall": {
-          "median": 1.8,
-          "p90": 2.4,
-          "mean": 1.877,
-          "min": 1.5
+          "median": 1.4,
+          "p90": 1.6,
+          "mean": 1.383,
+          "min": 1.1
         },
         "passes": {
-          "edges": 0.3999999761581421,
-          "render": 1.5,
-          "resolve": 0.3999999761581421,
-          "present": 0.3999999761581421
+          "edges": 0.2999999523162842,
+          "render": 1.2999999523162842,
+          "resolve": 0.2999999523162842,
+          "present": 0.2999999523162842
         }
       },
       "temporal": {
         "frames": 60,
-        "pixels": 150036,
-        "noiseMean": 26.008506549340265,
-        "noiseP99": 86.69,
-        "flickerPct": 10.281980600517945
+        "pixels": 150439,
+        "noiseMean": 25.954529002249505,
+        "noiseP99": 86.66,
+        "flickerPct": 10.18916820679524
       },
       "images": [
         "orbit-ultra-lo.frame-00.png",
@@ -623,30 +623,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 8.26,
-          "p90": 10.374,
-          "mean": 8.581,
-          "min": 7.356
+          "median": 6.46,
+          "p90": 6.784,
+          "mean": 6.429,
+          "min": 5.772
         },
         "wall": {
-          "median": 8.9,
-          "p90": 11,
-          "mean": 9.24,
-          "min": 7.9
+          "median": 6.8,
+          "p90": 7.1,
+          "mean": 6.778,
+          "min": 6.1
         },
         "passes": {
-          "edges": 0.8000000715255737,
-          "render": 7.900000095367432,
+          "edges": 0.2999999523162842,
+          "render": 6.399999976158142,
           "resolve": 0.5,
-          "present": 0.9000000953674316
+          "present": 0.30000007152557373
         }
       },
       "temporal": {
         "frames": 60,
-        "pixels": 697989,
-        "noiseMean": 28.700781560544844,
-        "noiseP99": 89.03,
-        "flickerPct": 14.678402944893756
+        "pixels": 706021,
+        "noiseMean": 28.378600300668012,
+        "noiseP99": 89.05,
+        "flickerPct": 14.442358825997605
       },
       "images": [
         "drag-ultra-hi.frame-00.png",
@@ -720,30 +720,30 @@
       "timing": {
         "frames": 60,
         "gpu": {
-          "median": 2.79,
-          "p90": 3.94,
-          "mean": 2.916,
-          "min": 2.028
+          "median": 2.123,
+          "p90": 2.254,
+          "mean": 2.056,
+          "min": 1.68
         },
         "wall": {
-          "median": 3.2,
-          "p90": 4.2,
-          "mean": 3.285,
-          "min": 2.4
+          "median": 2.4,
+          "p90": 2.6,
+          "mean": 2.373,
+          "min": 2.1
         },
         "passes": {
-          "edges": 0.3999999761581421,
-          "render": 2.799999952316284,
+          "edges": 0.2999999523162842,
+          "render": 2.100000023841858,
           "resolve": 0.3999999761581421,
-          "present": 0.40000009536743164
+          "present": 0.2999999523162842
         }
       },
       "temporal": {
         "frames": 60,
-        "pixels": 150133,
-        "noiseMean": 25.864699196225946,
-        "noiseP99": 86,
-        "flickerPct": 8.612421124533947
+        "pixels": 150532,
+        "noiseMean": 25.81012423866576,
+        "noiseP99": 86.02,
+        "flickerPct": 8.513621115730233
       },
       "images": [
         "drag-ultra-lo.frame-00.png",
@@ -809,5 +809,5 @@
       ]
     }
   },
-  "seconds": 79
+  "seconds": 74
 }
