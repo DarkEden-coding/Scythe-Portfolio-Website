@@ -51,6 +51,21 @@ station's, so the occupancy bits (which hold the bore) are rebuilt every frame. 
 itself comes out within 1%. `--label` keeps the rounds in `results/<label>/ab.json`. Images aren't
 checked; use a full run for that.
 
+Two more scenes run only here, `home-low-hi` and `home-low-lo`: the home view at Low (64³), where the
+site starts on a software renderer. Environment variables change how it runs:
+
+```sh
+CUBE_BENCH_ANGLE=swiftshader CUBE_BENCH_WALL=1 node bench/ab.mjs --a main --scenes home-low-lo --rounds 4 --frames 6
+```
+
+- `CUBE_BENCH_ANGLE` picks ANGLE's backend (default `metal`). `swiftshader` runs WebGL on the CPU,
+  a stand-in for a weak GPU; frames there take 50–1500 ms, so use few rounds and frames. On macOS,
+  Brave gives no WebGL with `gl` or `vulkan`.
+- `CUBE_BENCH_WALL` times each frame by wall clock (the draw plus a 1-pixel read) instead of timer
+  queries. Use it for SwiftShader, whose timer queries may not cover all of its work.
+- `CUBE_BENCH_GENERIC` draws the generic ray-cast program throughout, never a variant. That's what
+  the site does without `KHR_parallel_shader_compile`, which SwiftShader lacks.
+
 ## Where the ray-cast spends its steps
 
 ```sh

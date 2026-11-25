@@ -35,7 +35,12 @@ async function contestant(name: 'a' | 'b'): Promise<Contestant> {
   const view = module.CubeView.create(canvas, viewOptions('both', 'glacier', true));
   if (!view) throw new Error('No WebGL2');
   const switches = view as unknown as Record<string, unknown>;
-  if ('waitForShaders' in switches) switches.waitForShaders = true; // every frame from the final programs
+  // Every frame from the final programs, unless ?generic: then, as on a browser without
+  // KHR_parallel_shader_compile (SwiftShader has none), the generic program throughout.
+  const generic = new URLSearchParams(location.search).has('generic');
+  if ('waitForShaders' in switches) switches.waitForShaders = !generic;
+  const render = switches.render as { get?: unknown; generic?: unknown } | undefined;
+  if (generic && render?.generic) render.get = () => render.generic;
   if ('freezeWhenStill' in switches) switches.freezeWhenStill = false; // time the rays, not a frozen picture
   view.setFilter(FILTER_K);
   // Wall clock where there are no timer queries, or when asked for (?wall): a CPU renderer's
