@@ -7,6 +7,7 @@ import { Accumulator } from './accumulate.ts';
 import { createProgram, hexToRgb, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { ProbeTarget } from './probe.ts';
+import { cubeRect } from './screenRect.ts';
 import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, PROBE_EDGES_FS, RENDER_FS } from './shaders.ts';
 import { ThresholdTrail, TRAIL_SAMPLES } from './thresholdTrail.ts';
 import { ProgramVariants } from './variants.ts';
@@ -222,12 +223,18 @@ export class CubeView {
       // How wide a voxel at the cube's centre is on screen, in pixels.
       const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
       const twoPass = temporal && this.samples > 1 && voxelPx >= PROBE_FROM_PX;
+      // The passes below leave the pixels outside the cube alone (see screenRect.ts). The scissor
+      // is off for the clears: the targets must be clear everywhere.
+      const rect = cubeRect(camera, pixelWidth, pixelHeight, shift, focal);
+      gl.scissor(...rect);
       this.passHook?.(twoPass ? 'probe' : 'render');
       if (twoPass) {
         this.probe.begin(pixelWidth, pixelHeight, 3);
         gl.disable(gl.BLEND);
         useRender(1);
+        gl.enable(gl.SCISSOR_TEST);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
+        gl.disable(gl.SCISSOR_TEST);
       }
       if (temporal) {
         this.accumulator.begin(pixelWidth, pixelHeight);
@@ -237,6 +244,7 @@ export class CubeView {
         gl.viewport(0, 0, pixelWidth, pixelHeight);
         gl.enable(gl.BLEND);
       }
+      gl.enable(gl.SCISSOR_TEST);
       // Bound only now: a resize reallocates the accumulator's textures, binding them on whichever
       // unit is active, which could be one of these.
       if (twoPass) {
@@ -248,7 +256,8 @@ export class CubeView {
         useRender(0);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       }
-      if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n), this.settled);
+      gl.disable(gl.SCISSOR_TEST);
+      if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n), this.settled, rect);
     }
     gl.disable(gl.BLEND);
     this.passHook?.(null);

@@ -4,6 +4,7 @@
 
 import { createProgram, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
+import { type Rect, union } from './screenRect.ts';
 import { FULLSCREEN_VS, PRESENT_FS, RESOLVE_FS } from './shaders.ts';
 
 // Frames a still pixel's history averages over at most (see RESOLVE_FS for moving ones).
@@ -12,6 +13,7 @@ const HISTORY_FRAMES = 16;
 interface Target {
   texture: WebGLTexture;
   framebuffer: WebGLFramebuffer;
+  drawn: Rect | null; // where it can hold anything; transparent everywhere else
 }
 
 interface Camera {
@@ -82,8 +84,9 @@ export class Accumulator {
 
   /** Blends this frame into the history, then draws the result into the default framebuffer
    * (premultiplied, over whatever is there). `motion` is how far the voxels moved since the last
-   * frame, in world units. `settled`: the cube isn't changing, so still pixels can keep a long history. */
-  finish(camera: CameraBasis, shift: [number, number], focal: number, motion: [number, number, number], settled: boolean): void {
+   * frame, in world units. `settled`: the cube isn't changing, so still pixels can keep a long history.
+   * `rect`: the pixels the cube can cover (see screenRect.ts); the blend is transparent outside it. */
+  finish(camera: CameraBasis, shift: [number, number], focal: number, motion: [number, number, number], settled: boolean, rect: Rect): void {
     const { gl } = this;
     const [from, to] = this.history!;
     const u = this.resolveProgram.uniforms;
@@ -101,6 +104,12 @@ export class Accumulator {
     gl.uniform3fv(u.uMotion, motion);
     setCamera(gl, u, '', { basis: camera, shift, focal });
     setCamera(gl, u, 'Prev', this.previous ?? { basis: camera, shift, focal });
+    // Outside the cube the blend comes out transparent, so only the cube's pixels need it, plus
+    // wherever this target held the cube before, which has to be cleared to transparent for the
+    // frames that reproject into it.
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(...(to.drawn ? union(rect, to.drawn) : rect));
+    to.drawn = rect;
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     this.history = [to, from];
     this.previous = { basis: camera, shift: [...shift], focal };
@@ -113,7 +122,9 @@ export class Accumulator {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(this.presentProgram.program);
     this.bindTexture(0, to.texture, this.presentProgram.uniforms.uImage);
+    gl.scissor(...rect);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.SCISSOR_TEST);
   }
 
   private bindTexture(unit: number, texture: WebGLTexture, location: WebGLUniformLocation): void {
@@ -144,7 +155,7 @@ export class Accumulator {
       const fb = gl.createFramebuffer();
       gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
-      return { texture, framebuffer: fb };
+      return { texture, framebuffer: fb, drawn: null }; // new textures start out transparent
     };
     this.history = [target(), target()];
     this.reset();
