@@ -4,7 +4,9 @@
 // tiled volume, so moves can be fractions of a voxel and the box faces cut through voxels.
 //  FILTER_FS  per voxel, the highest threshold at which it still shows with k showing neighbours,
 //             with the voxel's order (see there) packed in below it
-//  BRICKS_FS  per 4³ block of the volume, its highest level, so rays skip empty blocks
+//  BRICKS_FS  per 4³ block of the volume (a brick), its highest level
+//  REACH_*    per brick, that and the highest level in the cubes of bricks around it, so rays skip
+//             empty bricks, several at once
 //  OCCUPANCY_FS which voxels show at the current threshold, bore included, a bit each, 4³ bricks per
 //             texel, for shading (and with the bore, for rays too)
 //  RENDER_FS  ray-casts the grid and draws visible voxels as lit cubes, studio-lit or sunlit with shadows;
@@ -91,17 +93,36 @@ float carved(ivec3 cell) {
 
 export const BRICK = 4; // voxels per brick edge; every grid size is a multiple
 
-// One z-slice of bricks per draw.
+// Passes over every brick at once draw into a 2D texture, the bricks' z-slices side by side,
+// 2^uAtlasShift to a row (atlasShift in view.ts): a draw per layer of a 3D texture costs more than
+// the work. size: bricks per edge.
+const ATLAS = /* glsl */ `
+uniform int uAtlasShift;
+// The brick an atlas texel holds; its z is size or more past the last slice.
+ivec3 atlasBrick(ivec2 px, int size) {
+  ivec2 tile = px / size;
+  return ivec3(px - tile * size, tile.x + (tile.y << uAtlasShift));
+}
+// The atlas texel of a brick, wrapping it into the volume if it is up to one volume outside.
+ivec2 atlasTexel(ivec3 brick, int size) {
+  ivec3 b = (brick + size) % size;
+  return b.xy + ivec2(b.z & ((1 << uAtlasShift) - 1), b.z >> uAtlasShift) * size;
+}`;
+
+// Into the brick atlas.
 export const BRICKS_FS = /* glsl */ `#version 300 es
 precision highp float;
 precision highp int;
 precision highp usampler3D;
 uniform usampler3D uPass;
-uniform int uZ;
+uniform int uSize;
+${ATLAS}
 out uint fragColor;
 
 void main() {
-  ivec3 origin = ivec3(ivec2(gl_FragCoord.xy), uZ) * ${BRICK};
+  ivec3 brick = atlasBrick(ivec2(gl_FragCoord.xy), uSize);
+  if (brick.z >= uSize) { fragColor = 0u; return; } // past the last slice
+  ivec3 origin = brick * ${BRICK};
   uint top = 0u;
   for (int z = 0; z < ${BRICK}; z++)
     for (int y = 0; y < ${BRICK}; y++)
@@ -110,17 +131,69 @@ void main() {
   fragColor = top >> 8; // the level, without the order
 }`;
 
+// The radii, in bricks, of the cubes of bricks around each brick that the reach passes take the
+// highest level of. With these, a ray in a brick whose cube of radius r holds nothing that shows
+// can jump to where it leaves that cube, up to REACH_RADII[2] + 1 bricks on, as cheaply as across
+// one brick. Empty space between the thinned cube's strands is narrow, so larger radii rarely
+// clear (1, 3, 7 and 2, 5, 11 took more brick steps at home).
+const REACH_RADII = [1, 2, 4];
+
+// Per brick, the highest level in it and in the cubes of bricks around it of each of REACH_RADII:
+// a square of bricks in each slice (REACH_PLANE_FS, from the brick atlas into an atlas, one draw),
+// then over the slices along z (REACH_FS, one z-slice of the 3D texture the ray-cast reads per
+// draw). The bricks wrap around like the volume. These depend only on the filter, not on the
+// threshold, so they are rebuilt with the brick levels, not while the threshold sweeps.
+const REACH = /* glsl */ `
+precision highp float;
+precision highp int;
+precision highp usampler2D;
+uniform usampler2D uSource;
+uniform int uSize;
+${ATLAS}
+out uvec4 fragColor;
+
+// Which of the four maxima (the brick's own, then each of REACH_RADII) a brick ring bricks away counts in.
+uvec4 within(int ring) {
+  return uvec4(lessThanEqual(ivec4(ring), ivec4(0, ${REACH_RADII.join(', ')})));
+}`;
+
+export const REACH_PLANE_FS = /* glsl */ `#version 300 es
+${REACH}
+
+void main() {
+  ivec3 brick = atlasBrick(ivec2(gl_FragCoord.xy), uSize);
+  if (brick.z >= uSize) { fragColor = uvec4(0u); return; }
+  uvec4 top = uvec4(0u);
+  for (int y = -${REACH_RADII[2]}; y <= ${REACH_RADII[2]}; y++)
+    for (int x = -${REACH_RADII[2]}; x <= ${REACH_RADII[2]}; x++) {
+      uint level = texelFetch(uSource, atlasTexel(brick + ivec3(x, y, 0), uSize), 0).r;
+      top = max(top, level * within(max(abs(x), abs(y))));
+    }
+  fragColor = top;
+}`;
+
+export const REACH_FS = /* glsl */ `#version 300 es
+${REACH}
+uniform int uZ;
+
+void main() {
+  ivec3 brick = ivec3(ivec2(gl_FragCoord.xy), uZ);
+  uvec4 top = uvec4(0u);
+  for (int z = -${REACH_RADII[2]}; z <= ${REACH_RADII[2]}; z++)
+    top = max(top, texelFetch(uSource, atlasTexel(brick + ivec3(0, 0, z), uSize), 0) * within(abs(z)));
+  fragColor = top;
+}`;
+
 // Which voxels show at the current threshold, one bit each, a brick of 4³ per texel: bit
 // x + 4y + 16z of the brick, z 0..1 in the first word and 2..3 in the second. Shading reads a
 // voxel's whole 3×3×3 neighbourhood (for its neighbour count and ambient occlusion) from it in 8
 // reads instead of 26 to 34.
 //
-// It is rebuilt whenever the threshold or filter changes, so most frames during playback. To do
-// that in one draw (a draw per layer of a 3D texture costs more than the work), it is a 2D texture:
-// the z-slices of bricks side by side, 2^uAtlasShift to a row (see brickBits in RENDER_FS).
+// It is rebuilt whenever the threshold or filter changes, so most frames during playback, in one
+// draw: it is a brick atlas (see ATLAS and brickBits in RENDER_FS).
 //
 // Without the bore it holds the volume's n / BRICK bricks per axis, and the ray-cast wraps bricks
-// of the tiled volume onto them. (Rays then step through the brick map and uPass: testing cells
+// of the tiled volume onto them. (Rays then step through the brick reach and uPass: testing cells
 // against these bits is no faster than reading uPass through the sampler.) With the bore, the bits
 // take off what it carves, so rays, brick skips and shading all read it from here instead of
 // working out carved() for every cell near the bore's wall. What it carves depends on where a cell
@@ -138,21 +211,18 @@ uniform float uThreshold;
 uniform int uN;
 uniform int uSize;       // bricks per axis
 uniform ivec3 uBase;     // the first brick, in bricks of the tiled volume
-uniform int uAtlasShift;
 uniform vec3 uOffset;    // as in RENDER_FS
 uniform vec4 uCarve;
 uniform float uLevels;
+${ATLAS}
 out uvec2 fragColor;
 #define COUNT_CARVED
 ${CARVED}
 
 void main() {
-  int size = uSize;
-  ivec2 px = ivec2(gl_FragCoord.xy);
-  ivec2 tile = px / size;
-  int slice = tile.x + (tile.y << uAtlasShift);
-  if (slice >= size) { fragColor = uvec2(0u); return; } // past the last slice
-  ivec3 origin = (ivec3(px - tile * size, slice) + uBase) * ${BRICK};
+  ivec3 brick = atlasBrick(ivec2(gl_FragCoord.xy), uSize);
+  if (brick.z >= uSize) { fragColor = uvec2(0u); return; } // past the last slice
+  ivec3 origin = (brick + uBase) * ${BRICK};
   // The brick's texels: bricks don't straddle the volume's edge, so wrapping its origin wraps them.
   ivec3 texel = origin - uN * ivec3(floor(vec3(origin) / float(uN)));
   bool carving = uCarve.w > 0.0;
@@ -181,7 +251,7 @@ precision highp usampler2D;
 // The uniforms inside #ifndef can come as #defines instead, as constants (see variants.ts).
 uniform usampler3D uChaos;  // chaos level per voxel
 uniform usampler3D uPass;   // highest threshold each voxel shows at, in 256ths, order included (see FILTER_FS)
-uniform usampler3D uBricks; // highest uPass level per brick of the volume
+uniform usampler3D uReach;  // per brick of the volume, its highest uPass level, then that of the cubes of bricks around it (see REACH_RADII)
 uniform usampler2D uOccupancy; // which voxels show, a bit each, per brick (see OCCUPANCY_FS)
 uniform int uAtlasShift;      // its z-slices go 2^uAtlasShift to a row
 uniform ivec3 uBoxBricks;     // with the bore, its first brick, in bricks of the tiled volume (see OCCUPANCY_FS)
@@ -494,7 +564,8 @@ bool findShowing(inout Ray r) {
   for (int i = 0; i < 1024; i++) {
     if (r.t > r.tLimit) return false;
     // Each brick is looked up once, when the ray enters it. Nothing in it shows (sub-levels add less
-    // than 1, or the bore takes all of it): jump to where the ray leaves it.
+    // than 1, or the bore takes all of it): jump to where the ray leaves it, or where it leaves the
+    // largest cube of bricks around it in which nothing shows.
     ivec3 brick = r.cell >> ${Math.log2(BRICK)};
     if (brick != r.brick) {
       COUNT_BRICK;
@@ -506,16 +577,24 @@ bool findShowing(inout Ray r) {
         r.brick = ivec3(-1);
         continue;
       }
-      // With the bore, the brick's occupancy words say whether anything in it shows, bore included,
-      // and then hold its cells' bits for the steps through it.
+      // Whether nothing in this brick shows, and how many bricks on along each axis the far corner
+      // of the largest clear cube of bricks around it is (see REACH_RADII), to jump out of that.
+      // Without the bore that is the brick reach. With it, the brick's occupancy words say whether
+      // anything in it shows, bore included, and then hold its cells' bits for the steps through it.
       bool empty;
+      int reach = 0;
       if (CARVING) {
         r.bits = brickBits(brick);
         empty = r.bits == uvec2(0u);
       } else {
-        empty = float(voxel(uBricks, brick, uN >> ${Math.log2(BRICK)})) + 1.0 <= uThreshold;
+        uvec4 levels = textureLod(uReach, (vec3(brick) + 0.5) / float(uN >> ${Math.log2(BRICK)}), 0.0);
+        vec4 clear = vec4(lessThanEqual(vec4(levels) + 1.0, vec4(uThreshold)));
+        empty = clear.x > 0.0;
+        // The cubes nest, so the clear ones are the first few: this adds up to the radius of the last.
+        reach = int(dot(clear.yzw, vec3(${REACH_RADII[0]}, ${REACH_RADII[1] - REACH_RADII[0]}, ${REACH_RADII[2] - REACH_RADII[1]})));
       }
       if (empty) {
+        brick += ivec3(r.stepDir) * reach;
         vec3 exitAt = vec3(brick * ${BRICK}) + (r.stepDir * 0.5 + 0.5) * float(${BRICK});
         vec3 tb = (exitAt - r.p) * r.inv;
         float tExit = min(min(tb.x, tb.y), tb.z);

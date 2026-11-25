@@ -9,7 +9,7 @@ import { createProgram, hexToRgb, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { ProbeTarget } from './probe.ts';
 import { cubeRect } from './screenRect.ts';
-import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, OCCUPANCY_FS, PROBE_EDGES_FS, RENDER_FS } from './shaders.ts';
+import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, OCCUPANCY_FS, PROBE_EDGES_FS, REACH_FS, REACH_PLANE_FS, RENDER_FS } from './shaders.ts';
 import { ThresholdTrail, TRAIL_SAMPLES } from './thresholdTrail.ts';
 import { ProgramVariants } from './variants.ts';
 
@@ -43,10 +43,11 @@ const VOXELS_PER_FRAME = 1 << 22;
 // accumulating: the refine pass needs the accumulator's stencil buffer.
 const PROBE_FROM_PX = 4;
 
-// The occupancy texture's layout (see OCCUPANCY_FS): `size` z-slices of size² bricks side by side,
-// a power of two to a row (so the ray-cast finds a slice with a mask and a shift), as square as that
-// allows. Without the bore it covers the volume, n / BRICK bricks per axis from brick 0: for Ultra
-// 16 × 5 slices of 80², 1280 × 400 texels. With it, the box's bricks (see boxBricks).
+// The layout of the textures with a texel per brick (ATLAS in shaders.ts): `size` z-slices of size²
+// bricks side by side, a power of two to a row (so the ray-cast finds a slice with a mask and a
+// shift), as square as that allows. The brick levels cover the volume, n / BRICK bricks per axis:
+// for Ultra 16 × 5 slices of 80², 1280 × 400 texels. So does the occupancy without the bore; with
+// it, the box's bricks (see boxBricks).
 interface Occupancy {
   size: number; // bricks per axis
   base: [number, number, number]; // the first, in bricks of the tiled volume
@@ -81,7 +82,9 @@ interface Volume {
   n: number;
   chaos: WebGLTexture; // chaos level per voxel
   filtered: WebGLTexture; // highest threshold each voxel passes the filter at, with its order (see FILTER_FS)
-  bricks: WebGLTexture; // highest level per brick of the volume
+  bricks: WebGLTexture; // highest level per brick of the volume, an atlas
+  reachPlanes: WebGLTexture; // that over squares of bricks in each slice, an atlas (see REACH_PLANE_FS)
+  reach: WebGLTexture; // and over cubes of bricks, for the ray-cast (see REACH_FS)
   bricksStale: boolean;
   occupancy: WebGLTexture; // which voxels show, a bit each, per brick of the volume (see OCCUPANCY_FS)
   occupancyFor: string | null; // what it was built for (see occupancyKey); null when stale
@@ -126,6 +129,8 @@ export class CubeView {
   private passHook: ((pass: Pass | null) => void) | null = null;
   private filter: Program;
   private brickPass: Program;
+  private reachPlanePass: Program;
+  private reachPass: Program;
   private occupancyPass: Program;
   private render: ProgramVariants;
   private edges: Program;
@@ -160,6 +165,8 @@ export class CubeView {
     this.trail = new ThresholdTrail(opts.glowFor, this.threshold);
     this.filter = createProgram(gl, FULLSCREEN_VS, FILTER_FS);
     this.brickPass = createProgram(gl, FULLSCREEN_VS, BRICKS_FS);
+    this.reachPlanePass = createProgram(gl, FULLSCREEN_VS, REACH_PLANE_FS);
+    this.reachPass = createProgram(gl, FULLSCREEN_VS, REACH_FS);
     this.occupancyPass = createProgram(gl, FULLSCREEN_VS, OCCUPANCY_FS);
     this.render = new ProgramVariants(gl, FULLSCREEN_VS, RENDER_FS);
     this.edges = createProgram(gl, EDGES_VS, EDGES_FS);
@@ -210,8 +217,10 @@ export class CubeView {
    * same size, being overwritten, is hidden. */
   load(bytes: Uint8Array, n: number): Promise<void> {
     const volume = (this.incoming?.volume.n === n ? this.incoming.volume : this.volume?.n === n ? this.volume : null)
-      ?? { n, chaos: this.texture(n, 'R8UI'), filtered: this.texture(n, 'R16UI'), bricks: this.texture(n / BRICK, 'R8UI'), bricksStale: true,
-        occupancy: this.occupancyTexture(n), occupancyFor: null };
+      ?? { n, chaos: this.texture(n, 'R8UI'), filtered: this.texture(n, 'R16UI'), bricks: this.atlasTexture(n / BRICK, 'R8UI'),
+        reachPlanes: this.atlasTexture(n / BRICK, 'RGBA8UI'), reach: this.texture(n / BRICK, 'RGBA8UI'), bricksStale: true,
+        // Big enough for either occupancy layout (see Occupancy); the box's is the larger.
+        occupancy: this.atlasTexture(boxBricks(n, [0, 0, 0]).size, 'RG32UI'), occupancyFor: null };
     if (this.incoming) {
       const old = this.incoming.volume;
       if (old !== volume && old !== this.volume) this.deleteVolume(old);
@@ -299,7 +308,7 @@ export class CubeView {
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_3D, volume.filtered);
       gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_3D, volume.bricks);
+      gl.bindTexture(gl.TEXTURE_3D, volume.reach);
       gl.activeTexture(gl.TEXTURE7);
       gl.bindTexture(gl.TEXTURE_2D, volume.occupancy);
       const useRender = (mode: RenderMode): void => this.useRender(render, mode, n, occupancy, camera, pixelWidth, pixelHeight, shift, focal, temporal);
@@ -386,7 +395,7 @@ export class CubeView {
     this.setCamera(render, camera, pixelWidth, pixelHeight, shift, focal);
     gl.uniform1i(u.uChaos, 0);
     gl.uniform1i(u.uPass, 1);
-    gl.uniform1i(u.uBricks, 2);
+    gl.uniform1i(u.uReach, 2);
     gl.uniform1i(u.uOccupancy, 7);
     gl.uniform1i(u.uAtlasShift, atlasShift(occupancy.size));
     gl.uniform3iv(u.uBoxBricks, occupancy.base);
@@ -505,21 +514,37 @@ export class CubeView {
     }
   }
 
-  /** Rebuilds the highest level per brick of the box, one z-slice of bricks per draw. */
+  /** Rebuilds the highest level per brick, then over squares and cubes of bricks around it (see
+   * REACH_RADII): two draws into atlases, then one per z-slice of bricks into the ray-cast's 3D texture. */
   private refreshBricks(volume: Volume): void {
     const { gl } = this;
     const { n } = volume;
-    const u = this.brickPass.uniforms;
     const size = n / BRICK;
     gl.disable(gl.BLEND);
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.filterTarget);
-    gl.viewport(0, 0, size, size);
-    gl.useProgram(this.brickPass.program);
     gl.activeTexture(gl.TEXTURE0);
+    // Samplers read texture unit 0, their default.
+    const atlasPass = (program: Program, target: WebGLTexture): void => {
+      gl.useProgram(program.program);
+      gl.uniform1i(program.uniforms.uSize, size);
+      gl.uniform1i(program.uniforms.uAtlasShift, atlasShift(size));
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, target, 0);
+      gl.viewport(0, 0, ...atlasSize(size));
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    };
     gl.bindTexture(gl.TEXTURE_3D, volume.filtered);
-    gl.uniform1i(u.uPass, 0);
+    atlasPass(this.brickPass, volume.bricks);
+    gl.bindTexture(gl.TEXTURE_2D, volume.bricks);
+    atlasPass(this.reachPlanePass, volume.reachPlanes);
+
+    const u = this.reachPass.uniforms;
+    gl.useProgram(this.reachPass.program);
+    gl.bindTexture(gl.TEXTURE_2D, volume.reachPlanes);
+    gl.uniform1i(u.uSize, size);
+    gl.uniform1i(u.uAtlasShift, atlasShift(size));
+    gl.viewport(0, 0, size, size);
     for (let z = 0; z < size; z++) {
-      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, volume.bricks, 0, z);
+      gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, volume.reach, 0, z);
       gl.uniform1i(u.uZ, z);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
@@ -551,12 +576,12 @@ export class CubeView {
     gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
 
-  private occupancyTexture(n: number): WebGLTexture {
+  /** A texture with a texel per brick, `size` bricks per axis, laid out as an atlas (see atlasSize). */
+  private atlasTexture(size: number, format: 'R8UI' | 'RGBA8UI' | 'RG32UI'): WebGLTexture {
     const { gl } = this;
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    // Big enough for either layout (see Occupancy); the box's is the larger.
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RG32UI, ...atlasSize(boxBricks(n, [0, 0, 0]).size));
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl[format], ...atlasSize(size));
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     return texture;
@@ -567,9 +592,11 @@ export class CubeView {
     this.gl.deleteTexture(volume.chaos);
     this.gl.deleteTexture(volume.filtered);
     this.gl.deleteTexture(volume.bricks);
+    this.gl.deleteTexture(volume.reachPlanes);
+    this.gl.deleteTexture(volume.reach);
   }
 
-  private texture(n: number, format: 'R8UI' | 'R16UI'): WebGLTexture {
+  private texture(n: number, format: 'R8UI' | 'R16UI' | 'RGBA8UI'): WebGLTexture {
     const { gl } = this;
     const texture = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_3D, texture);

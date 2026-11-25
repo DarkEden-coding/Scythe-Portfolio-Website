@@ -57,7 +57,13 @@ are five presets, each at four grid sizes (64³, 112³, 160³, 320³).
 
 - **Ray marching:** a DDA over a 3D integer texture, with a brick map (max level per 4³ block)
   to skip empty space. The threshold slider hides voxels below a chaos level, so the brick map is
-  what keeps the ray count low as the cube thins out. Voxels are read through the sampler with
+  what keeps the ray count low as the cube thins out. Each brick also stores the highest level in
+  the cubes of bricks around it (radius 1, 2 and 4, rebuilt with the brick map, so not while the
+  threshold sweeps), and a ray in an empty brick jumps out of the largest of those cubes that is
+  empty too, with the same code as a one-brick jump: at home that cuts a camera ray's brick steps
+  from 26 to 10. The brick passes draw into 2D atlases where they can, since a draw per layer of a
+  3D texture costs more than the work.
+  Voxels are read through the sampler with
   REPEAT wrapping, so the periodic volume wraps for free instead of costing compares per read.
 - **The bore:** at a project the cube has a bore cut towards the camera. What it carves is baked
   into the occupancy bits below (rebuilt only when the bore, the volume's place or the threshold
