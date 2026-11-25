@@ -13,3 +13,6 @@ dist
 bench/results/**/*.png
 bench/results/**/compare-*.json
 bench/results/**/diff-*/
+
+# The A/B benchmark's snapshots of src/ (bench/ab.mjs).
+bench/.ab

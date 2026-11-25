@@ -6,26 +6,16 @@
 //                      [--compare <label or results dir>]
 
 import { execSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import puppeteer from 'puppeteer-core';
 import { createServer } from 'vite';
+import { BROWSER_ARGS, launchBrowser, openPage } from './browser.mjs';
 import { compareRuns, printComparison, resultsDir } from './compare.mjs';
 import { acquireGpuLock } from './gpuLock.mjs';
 import { writePng } from './images.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
-const BRAVE = '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser';
-// Real GPU through ANGLE's Metal backend, frames not held to the display's refresh, and nothing
-// slowed down for being in the background.
-const BROWSER_ARGS = [
-  '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist',
-  '--disable-gpu-vsync', '--disable-frame-rate-limit',
-  '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows',
-  '--no-first-run', '--no-default-browser-check',
-];
 
 const WARMUP = 10; // frames before timing
 const TIMED = 60; // timed frames per scene
@@ -56,15 +46,11 @@ const server = args.url ? null : await createServer({ root: ROOT, logLevel: 'war
 await server?.listen();
 const baseUrl = (args.url ?? server.resolvedUrls.local[0]).replace(/\/$/, '');
 const releaseGpu = await acquireGpuLock();
-const profile = mkdtempSync(join(tmpdir(), 'cube-bench-'));
-const browser = await puppeteer.launch({ executablePath: BRAVE, headless: true, userDataDir: profile, args: BROWSER_ARGS, protocolTimeout: 600_000 });
+const browser = await launchBrowser();
 
 const started = Date.now();
 try {
-  const page = await browser.newPage();
-  page.on('console', msg => { if (msg.type() === 'error') console.error('page:', msg.text()); });
-  page.on('pageerror', err => console.error('page:', err.message));
-  await page.goto(`${baseUrl}/bench/index.html`);
+  const page = await openPage(browser, `${baseUrl}/bench/index.html`);
   await page.waitForFunction(() => 'bench' in window);
   const info = await page.evaluate(() => window.bench.info());
   console.log(`${info.renderer}; GPU timer queries ${info.timerQuery ? 'on' : 'off'}`);
@@ -92,7 +78,6 @@ try {
 } finally {
   await browser.close();
   await server?.close();
-  rmSync(profile, { recursive: true, force: true });
   releaseGpu();
 }
 

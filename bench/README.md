@@ -25,6 +25,27 @@ same machine, one run at a time (`bench/gpuLock.mjs` makes concurrent runs wait 
 are only kept locally (`*.png` is git-ignored), so a baseline from another checkout has to be passed
 as a path. Rendering is deterministic, so rerunning the base commit gives the same images.
 
+## A/B timing (`ab.mjs`)
+
+Two full runs, even back to back, can differ by more than a change is worth: other work on the
+GPU slows a whole run, and under load runs have swung by 2×. For speed, compare two versions in one
+page instead:
+
+```sh
+node bench/ab.mjs --a main                      # main against the working tree, every scene
+node bench/ab.mjs --a HEAD~1 --b HEAD --quick   # one commit against its parent
+node bench/ab.mjs --a main --scenes station-ultra-hi --rounds 12 --label station-ab
+```
+
+It copies `src/` at each revision (`--b` defaults to the working tree) into `bench/.ab/`, and
+`ab.html` draws each copy on a canvas of its own. Per scene, a round times a block of `--frames`
+frames (default 20) from each, in alternating order, each block after a fresh history and a few
+warm-up frames. It prints both medians and B's time over A's, the median of the rounds' ratios, with
+their range: a slow stretch slows both blocks of a round, so it mostly cancels. Still scenes are
+timed accumulating, as in a full run; moving ones turn as in a full run. Comparing a revision with
+itself comes out within 1%. `--label` keeps the rounds in `results/<label>/ab.json`. Images aren't
+checked; use a full run for that.
+
 ## Scenes (`scenes.ts`)
 
 Each scene runs at 1440×900 CSS px × DPR 1.75 (`-hi`, 2520×1575) and at 1280×720 × 1 (`-lo`).

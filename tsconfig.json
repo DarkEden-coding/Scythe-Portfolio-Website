@@ -13,5 +13,6 @@
     "allowImportingTsExtensions": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "bench"]
+  "include": ["src", "bench"],
+  "exclude": ["bench/.ab"]
 }
