@@ -3,10 +3,11 @@
 // lock left by a run that died is taken over.
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const LOCK = join(tmpdir(), 'cube-bench-gpu.lock');
+// A fixed path, not os.tmpdir(): each agent or terminal session can have its own TMPDIR, and then
+// every run would get a lock of its own.
+const LOCK = '/tmp/cube-bench-gpu.lock';
 
 function alive(pid) {
   try { process.kill(pid, 0); return true; } catch { return false; }
