@@ -555,11 +555,18 @@ const float SUN_RADIUS = 0.1; // the sun disk's radius in radians; shadows softe
 vec3 sunDir;
 
 // How much sunlight reaches o. Each voxel in the way blocks as much as its depth allows.
+//
+// Only cells deeper in than the fade bands block (see blocking()), and those all reach into the box
+// inset by FADE, so the ray only walks its stretch inside that; most rays from the sunlit faces
+// leave through a band without entering it.
 float sunlight(vec3 o) {
+  vec2 span = boxSpan(o, sunDir, uOffset + FADE, uOffset + float(uN) - FADE);
+  if (span.x >= span.y || span.y <= 0.0) return 1.0;
 #ifdef STEP_COUNTS
   shadowRay = true;
 #endif
-  Ray s = startRay(o, sunDir, ivec3(floor(o)), vec3(0.0), boxSpan(o, sunDir, uOffset, uOffset + float(uN)).y);
+  vec3 p = o + sunDir * max(span.x, 0.0);
+  Ray s = startRay(p, sunDir, ivec3(floor(p)), vec3(0.0), span.y - max(span.x, 0.0));
   float light = 1.0;
   for (int k = 0; k < 12; k++) {
     if (!findShowing(s)) break;
