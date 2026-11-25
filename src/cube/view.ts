@@ -301,8 +301,10 @@ export class CubeView {
   /** Puts the ray-cast program for a pass in use, with every uniform set (see RENDER_FS and renderProgram). */
   private useRender(mode: RenderMode, n: number, camera: CameraBasis, pixelWidth: number, pixelHeight: number, shift: [number, number], focal: number, temporal: boolean): void {
     const { gl } = this;
+    // The pass stays a uniform: as a constant it saves little, and the compiler then treats the
+    // probe and refine passes' floating point differently enough to move soft shadow edges.
     const render = this.render.get({
-      uMode: mode, uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
+      uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
       uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
     });
     const u = render.uniforms;
