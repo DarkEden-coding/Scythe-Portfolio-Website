@@ -13,6 +13,7 @@ import { parseArgs } from 'node:util';
 import puppeteer from 'puppeteer-core';
 import { createServer } from 'vite';
 import { compareRuns, printComparison, resultsDir } from './compare.mjs';
+import { acquireGpuLock } from './gpuLock.mjs';
 import { writePng } from './images.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
@@ -54,6 +55,7 @@ mkdirSync(outDir, { recursive: true });
 const server = args.url ? null : await createServer({ root: ROOT, logLevel: 'warn', server: { port: Number(args.port) } });
 await server?.listen();
 const baseUrl = (args.url ?? server.resolvedUrls.local[0]).replace(/\/$/, '');
+const releaseGpu = await acquireGpuLock();
 const profile = mkdtempSync(join(tmpdir(), 'cube-bench-'));
 const browser = await puppeteer.launch({ executablePath: BRAVE, headless: true, userDataDir: profile, args: BROWSER_ARGS, protocolTimeout: 600_000 });
 
@@ -91,6 +93,7 @@ try {
   await browser.close();
   await server?.close();
   rmSync(profile, { recursive: true, force: true });
+  releaseGpu();
 }
 
 /** Single frames, timing, then the converged image and its noise over the last HISTORY frames. */

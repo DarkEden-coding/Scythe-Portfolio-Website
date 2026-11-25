@@ -21,7 +21,7 @@ Other flags: `--scenes a,b` runs just those, and `--port` (default 5199) or `--u
 server). `--compare` takes a label under `bench/results/` or a path to a run's directory.
 
 To compare a branch, run the baseline on its base commit and the candidate on the branch, on the
-same machine, one run at a time. Other GPU work running at the same time skews the timings. Images
+same machine, one run at a time (`bench/gpuLock.mjs` makes concurrent runs wait their turn). Other GPU work running at the same time skews the timings. Images
 are only kept locally (`*.png` is git-ignored), so a baseline from another checkout has to be passed
 as a path. Rendering is deterministic, so rerunning the base commit gives the same images.
 
