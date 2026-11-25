@@ -151,6 +151,20 @@ layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDepth; // distance to the first surface drawn, -1 for none; for reprojection
 layout(location = 2) out uint fragFaces;  // the probe's faces id (see faces)
 
+#ifdef STEP_COUNTS
+// Debugging only (bench/steps.mjs defines it): how much traversal work a pixel's rays do, output
+// instead of the colour. Camera-ray cells and bricks visited, shadow-ray cells and bricks, carved() calls.
+ivec4 stepCount = ivec4(0);
+bool shadowRay = false;
+#define COUNT_CELL stepCount[shadowRay ? 2 : 0]++
+#define COUNT_BRICK stepCount[shadowRay ? 2 : 1]++
+#define COUNT_CARVED stepCount[3]++
+#else
+#define COUNT_CELL
+#define COUNT_BRICK
+#define COUNT_CARVED
+#endif
+
 // Set by trace(): the distance along the ray to the first surface it drew, or -1.
 float firstDepth = -1.0;
 
@@ -168,15 +182,20 @@ float chaos(ivec3 cell) { return float(voxel(uChaos, cell, uN)); }
 // is ragged where chaotic voxels outlast calm ones. The bore runs from the box centre out along
 // its axis, with a round end at the centre.
 float carved(ivec3 cell) {
+  COUNT_CARVED;
   vec3 q = (vec3(cell) + 0.5 - uOffset) * (2.0 / float(uN)) - 1.0;
   vec3 off = q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0);
   return 1.0 - smoothstep(0.85 * uCarve.w, uCarve.w, length(off));
 }
 
+// Set while shading a cell the bore is too far from to touch it or its neighbours, so their dozens
+// of reads skip carved(), which would come out 0.
+bool beyondBore = false;
+
 // How far above the threshold a voxel sits; it shows at 0 or more.
 float margin(ivec3 cell) {
   float m = float(voxel(uPass, cell, uN)) * (1.0 / 256.0) - uThreshold;
-  return CARVING ? m - carved(cell) * (uLevels + 1.0) : m;
+  return CARVING && !beyondBore ? m - carved(cell) * (uLevels + 1.0) : m;
 }
 bool shows(ivec3 cell) { return margin(cell) >= 0.0; }
 
@@ -193,15 +212,25 @@ float age(ivec3 cell) {
   return 1.0;
 }
 
-// Whether the bore removes every cell of a brick, so a ray can skip it like an empty one. The
-// distance from the axis changes no faster than position, so it is enough that the brick's centre
-// sits half a brick diagonal inside where the bore starts to thin.
-bool boredOut(ivec3 brick) {
-  if (!CARVING) return false;
-  float scale = 2.0 / float(uN);
-  vec3 q = (vec3(brick * ${BRICK}) + ${BRICK / 2}.0 - uOffset) * scale - 1.0;
-  vec3 off = q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0);
-  return length(off) + ${(Math.sqrt(3) * BRICK / 2).toFixed(4)} * scale <= 0.85 * uCarve.w;
+// ---------- skipping what the bore takes ----------
+// These work in cell units of the tiled volume, where carved() works in box units, so each leaves
+// BORE_SLACK cells of margin for rounding: they must never skip a cell that carved() lets show.
+const float BORE_SLACK = 0.01;
+
+// How far x is from the bore's axis (the half-line from the box centre out), in cells.
+float boreDistance(vec3 x) {
+  vec3 q = x - (uOffset + 0.5 * float(uN));
+  return length(q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0));
+}
+
+// Whether nothing in a brick shows once the bore is cut: even its highest level is below the
+// threshold after the least the bore takes from any of its cells. Distance from the axis changes no
+// faster than position, and the brick's cell centres lie within 1.5·√3 cells of its centre.
+bool carvedAway(ivec3 brick, float level) {
+  float radius = 0.5 * float(uN) * uCarve.w; // in cells
+  float d = boreDistance(vec3(brick * ${BRICK}) + ${BRICK / 2}.0) + ${(Math.sqrt(3) * (BRICK - 1) / 2).toFixed(4)} + BORE_SLACK;
+  float least = 1.0 - smoothstep(0.85 * radius, radius, d);
+  return level + 1.0 - least * (uLevels + 1.0) <= uThreshold;
 }
 
 // Cells near a box face fade, so as the volume moves, a voxel crossing a face changes over several
@@ -314,34 +343,80 @@ void stepCell(inout Ray r) {
   }
 }
 
+// Moves the ray on to the cell it is in at t, as though it had stepped there.
+void jumpTo(inout Ray r, float t) {
+  r.cell = ivec3(floor(r.p + r.rd * t));
+  r.tMax = (r.stepDir * (vec3(r.cell) - r.p) + r.stepDir * 0.5 + 0.5) * r.tDelta;
+  // It entered the cell where it last crossed one of the cell's near faces, through that face.
+  // (A select, not a blend: on an axis the ray doesn't move along, tMax - tDelta is inf - inf.)
+  vec3 entered = mix(vec3(-1e30), r.tMax - r.tDelta, notEqual(r.stepDir, vec3(0.0)));
+  if (entered.x > entered.y && entered.x > entered.z) { r.t = entered.x; r.normal = vec3(-r.stepDir.x, 0.0, 0.0); }
+  else if (entered.y > entered.z) { r.t = entered.y; r.normal = vec3(0.0, -r.stepDir.y, 0.0); }
+  else { r.t = entered.z; r.normal = vec3(0.0, 0.0, -r.stepDir.z); }
+}
+
+// How far a ray at t can jump through the bore's hollow, or 0 if it isn't in it. carved() takes a
+// cell whole when its centre is within 0.85 of the bore's radius of the axis, so anywhere within
+// half a cell diagonal less than that, the ray is in a cell that doesn't show. That region is a
+// capsule: a cylinder around the axis's half-line, with a round end at the box centre. A ray inside
+// it leaves through the side or through the round end, and the side only counts on the outward side
+// of the centre: there the cylinder is the boundary, behind it the sphere is.
+float boreHollow(Ray r) {
+  float radius = 0.85 * 0.5 * float(uN) * uCarve.w - ${(Math.sqrt(3) / 2).toFixed(4)} - BORE_SLACK; // in cells
+  vec3 o = r.p + r.rd * r.t - (uOffset + 0.5 * float(uN)); // from the box centre
+  vec3 a = uCarve.xyz;
+  vec3 across = o - a * dot(o, a); // the parts across the axis
+  if (dot(o, a) >= 0.0 ? dot(across, across) >= radius * radius : dot(o, o) >= radius * radius) return 0.0;
+  // Where the ray leaves the cylinder and the sphere: the far roots of |across(o + rd·t)|² = radius²
+  // and |o + rd·t|² = radius². Inside, both have real roots (unless it runs along the axis).
+  vec3 rdAcross = r.rd - a * dot(r.rd, a);
+  float qa = dot(rdAcross, rdAcross), qb = dot(across, rdAcross), qc = dot(across, across) - radius * radius;
+  float side = qa > 1e-8 ? (-qb + sqrt(max(qb * qb - qa * qc, 0.0))) / qa : 1e30;
+  float b = dot(o, r.rd);
+  float end = -b + sqrt(max(b * b - dot(o, o) + radius * radius, 0.0));
+  return dot(o + r.rd * side, a) >= 0.0 ? side : end;
+}
+
 // Moves to the next cell that shows, skipping empty bricks. False once the ray leaves the box.
 bool findShowing(inout Ray r) {
   for (int i = 0; i < 1024; i++) {
     if (r.t > r.tLimit) return false;
-    // Nothing in this brick shows (sub-levels add less than 1, or the bore takes all of it): jump to
-    // where the ray leaves it.
-    // Each brick is looked up once, when the ray enters it.
+    // Each brick is looked up once, when the ray enters it. Nothing in it shows (sub-levels add less
+    // than 1, or the bore takes all of it): jump to where the ray leaves it.
     ivec3 brick = r.cell >> ${Math.log2(BRICK)};
-    if (brick != r.brick && (float(voxel(uBricks, brick, uN >> ${Math.log2(BRICK)})) + 1.0 <= uThreshold || boredOut(brick))) {
-      vec3 exitAt = vec3(brick * ${BRICK}) + (r.stepDir * 0.5 + 0.5) * float(${BRICK});
-      vec3 tb = (exitAt - r.p) * r.inv;
-      float tExit = min(min(tb.x, tb.y), tb.z);
-      bvec3 leave = equal(tb, vec3(tExit));
-      // The axis the ray leaves through lands exactly on the next brick; rounding floor() there
-      // can put the cell on the wrong side when the ray runs almost along that plane.
-      ivec3 next = brick * ${BRICK} + ivec3(greaterThan(r.stepDir, vec3(0.0))) * ${BRICK} - ivec3(lessThan(r.stepDir, vec3(0.0)));
-      ivec3 along = ivec3(floor(r.p + r.rd * tExit));
-      r.cell = ivec3(mix(vec3(along), vec3(next), vec3(leave)));
-      r.tMax = (r.stepDir * (vec3(r.cell) - r.p) + r.stepDir * 0.5 + 0.5) * r.tDelta;
-      // On the other axes, floor() can land one cell behind the ray; step those forward.
-      ivec3 behind = ivec3(lessThan(r.tMax, vec3(tExit))) * ivec3(not(leave));
-      r.cell += behind * ivec3(r.stepDir);
-      r.tMax += vec3(behind) * r.tDelta;
-      r.normal = -r.stepDir * vec3(leave);
-      r.t = tExit;
-      continue;
+    if (brick != r.brick) {
+      COUNT_BRICK;
+      // Inside the bore's hollow, jump right across it, to the cell where the ray leaves it. If
+      // that's only a cell or two on, step there instead.
+      float hollow = CARVING ? boreHollow(r) : 0.0;
+      if (hollow > 2.0) {
+        jumpTo(r, r.t + hollow);
+        r.brick = ivec3(-1);
+        continue;
+      }
+      float level = float(voxel(uBricks, brick, uN >> ${Math.log2(BRICK)}));
+      if (level + 1.0 <= uThreshold || CARVING && carvedAway(brick, level)) {
+        vec3 exitAt = vec3(brick * ${BRICK}) + (r.stepDir * 0.5 + 0.5) * float(${BRICK});
+        vec3 tb = (exitAt - r.p) * r.inv;
+        float tExit = min(min(tb.x, tb.y), tb.z);
+        bvec3 leave = equal(tb, vec3(tExit));
+        // The axis the ray leaves through lands exactly on the next brick; rounding floor() there
+        // can put the cell on the wrong side when the ray runs almost along that plane.
+        ivec3 next = brick * ${BRICK} + ivec3(greaterThan(r.stepDir, vec3(0.0))) * ${BRICK} - ivec3(lessThan(r.stepDir, vec3(0.0)));
+        ivec3 along = ivec3(floor(r.p + r.rd * tExit));
+        r.cell = ivec3(mix(vec3(along), vec3(next), vec3(leave)));
+        r.tMax = (r.stepDir * (vec3(r.cell) - r.p) + r.stepDir * 0.5 + 0.5) * r.tDelta;
+        // On the other axes, floor() can land one cell behind the ray; step those forward.
+        ivec3 behind = ivec3(lessThan(r.tMax, vec3(tExit))) * ivec3(not(leave));
+        r.cell += behind * ivec3(r.stepDir);
+        r.tMax += vec3(behind) * r.tDelta;
+        r.normal = -r.stepDir * vec3(leave);
+        r.t = tExit;
+        continue;
+      }
+      r.brick = brick;
     }
-    r.brick = brick;
+    COUNT_CELL;
     if (shows(r.cell)) return true;
     stepCell(r);
   }
@@ -368,15 +443,21 @@ vec3 sunDir;
 
 // How much sunlight reaches o. Each voxel in the way blocks as much as its depth allows.
 float sunlight(vec3 o) {
+#ifdef STEP_COUNTS
+  shadowRay = true;
+#endif
   Ray s = startRay(o, sunDir, ivec3(floor(o)), vec3(0.0), boxSpan(o, sunDir, uOffset, uOffset + float(uN)).y);
   float light = 1.0;
   for (int k = 0; k < 12; k++) {
     if (!findShowing(s)) break;
     light *= 1.0 - blocking(s.cell);
-    if (light < 0.02) return 0.0;
+    if (light < 0.02) break;
     stepCell(s);
   }
-  return light;
+#ifdef STEP_COUNTS
+  shadowRay = false;
+#endif
+  return light < 0.02 ? 0.0 : light;
 }
 
 // Fade-band sheets have neighbours that are all still fading in, so ambient occlusion on them
@@ -419,12 +500,15 @@ vec3 shade(Ray r, float dist) {
     cachedCell = r.cell;
     cachedNormal = r.normal;
     cachedSheet = shadingSheet;
+    // Neighbours' centres are within √3 cells of this one's.
+    beyondBore = CARVING && boreDistance(vec3(r.cell) + 0.5) >= 0.5 * float(uN) * uCarve.w + 2.0;
     cachedCorners = shadingSheet ? vec4(1.0) : faceCorners(r.cell + nI, u, v);
     // New voxels glow and cool over a fixed time from when each appeared, so the growing front
     // reads and, once the threshold stops, the last of them go out one by one.
     cachedHeat = uGlow ? 1.0 - smoothstep(0.0, 1.0, age(r.cell)) : 0.0;
     vec3 hot = mix(vec3(1.0, 0.93, 0.86), uAccent, smoothstep(0.0, 0.12, 1.0 - cachedHeat));
     cachedSurface = mix(albedo(r.cell, chaos(r.cell)), hot, 0.6 * cachedHeat);
+    beyondBore = false;
   }
   vec4 c = cachedCorners;
   float ao = mix(mix(c.x, c.y, f.x), mix(c.z, c.w, f.x), f.y);
@@ -605,6 +689,10 @@ void main() {
     }
   }
   fragColor = sum / float(counted);
+#ifdef STEP_COUNTS
+  // Drawn straight over the cleared canvas, so the counts read back as written, 1020 at most.
+  fragColor = min(vec4(stepCount) / float(rays), 1020.0) / 1020.0;
+#endif
 }`;
 
 // Accumulating over frames: each frame casts its rays at different points in the pixel (and on the

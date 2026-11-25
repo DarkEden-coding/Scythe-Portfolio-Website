@@ -48,6 +48,18 @@ auto-rotating with one ray, so everything that depends on the threshold is rebui
 itself comes out within 1%. `--label` keeps the rounds in `results/<label>/ab.json`. Images aren't
 checked; use a full run for that.
 
+## Where the ray-cast spends its steps
+
+```sh
+node bench/steps.mjs                          # every still scene
+node bench/steps.mjs --scenes station-ultra-lo
+```
+
+Draws each scene once with `STEP_COUNTS` defined in `RENDER_FS`, so each pixel outputs counts
+instead of colour, and prints per ray (over the pixels where rays did any work) the mean and p99 of
+camera-ray cells and bricks visited, shadow-ray steps, and `carved()` calls. A heatmap per scene goes
+to `bench/results/steps/`: red camera cells, green camera bricks, blue shadow steps.
+
 ## Scenes (`scenes.ts`)
 
 Each scene runs at 1440×900 CSS px × DPR 1.75 (`-hi`, 2520×1575) and at 1280×720 × 1 (`-lo`).

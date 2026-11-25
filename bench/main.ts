@@ -22,9 +22,21 @@ interface Mode {
   settled: boolean;
 }
 
+// bench/steps.mjs opens the page with ?steps: the ray-cast then outputs how much traversal work
+// each pixel did instead of its colour (STEP_COUNTS in RENDER_FS).
+const STEPS = new URLSearchParams(location.search).has('steps');
+if (STEPS) {
+  const shaderSource = WebGL2RenderingContext.prototype.shaderSource;
+  WebGL2RenderingContext.prototype.shaderSource = function (shader, source) {
+    if (source.includes('findShowing')) source = source.replace('\n', '\n#define STEP_COUNTS\n');
+    shaderSource.call(this, shader, source);
+  };
+}
+
 const canvas = document.querySelector<HTMLCanvasElement>('#cube')!;
 const view = CubeView.create(canvas, viewOptions('both', 'glacier', true));
 if (!view) throw new Error('No WebGL2');
+if (STEPS) view.opts.edgeColor = [0, 0, 0, 0];
 const { gl } = view;
 view.waitForShaders = true;
 view.setFilter(FILTER_K);
@@ -193,6 +205,18 @@ const bench = {
       wall.push(performance.now() - start);
     }
     return { wall, gpu: timer ? await timer.collect() : null };
+  },
+
+  /** With ?steps: one frame of the scene's rays, no temporal AA, as raw RGBA bytes, bottom row first
+   * (see STEP_COUNTS in RENDER_FS). */
+  async steps(): Promise<string> {
+    setMode({ accumulate: false, samples: scene.samples, settled: true });
+    drawFrame();
+    const { width, height } = canvas;
+    const rgba = new Uint8Array(width * height * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+    return toBase64(rgba);
   },
 
   /** Draws frames split by pass (see passClock.ts); the median ms of each pass. */
