@@ -1,7 +1,7 @@
 // Splits a frame's time by pass (CubeView.onPass): at each pass boundary, waits for the GPU and reads
 // the clock. gl.finish() doesn't wait in Chrome, and on ANGLE's Metal backend reading a pixel only
 // waits for the work that draws it, so the wait reads one pixel of whatever the last pass drew into.
-// The waits cost a little (more on the screen's multisampled buffer), so the passes add up to a bit
+// The waits cost a little, so the passes add up to a bit
 // more than an unsplit frame: use the split for where time goes, and whole-frame times for how much.
 
 import type { Pass } from '../src/cube/view.ts';

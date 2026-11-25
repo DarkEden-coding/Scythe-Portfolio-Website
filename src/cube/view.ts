@@ -4,6 +4,7 @@
 
 import { CHAOS } from '../presets.ts';
 import { Accumulator } from './accumulate.ts';
+import { pictureKey, Stillness } from './freeze.ts';
 import { createProgram, hexToRgb, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { ProbeTarget } from './probe.ts';
@@ -39,8 +40,7 @@ const VOXELS_PER_FRAME = 1 << 22;
 
 // With several rays, voxels at least this many pixels wide draw in passes, extra rays only at edges
 // (see RENDER_FS). Smaller ones leave too few pixels inside a face for that to pay. Only when
-// accumulating: drawn straight to the screen, whose buffer is multisampled, the extra full-screen
-// passes cost more than they save.
+// accumulating: the refine pass needs the accumulator's stencil buffer.
 const PROBE_FROM_PX = 4;
 
 // One cube's textures.
@@ -84,6 +84,9 @@ export class CubeView {
   accumulate = false;
   /** Whether the cube holds still (no threshold change), so accumulating can average over longer. */
   settled = true;
+  /** Once a still picture has converged, stop casting rays and show it as it is (see freeze.ts).
+   * The benchmark turns this off to time the rays. */
+  freezeWhenStill = true;
 
   private passHook: ((pass: Pass | null) => void) | null = null;
   private filter: Program;
@@ -98,10 +101,14 @@ export class CubeView {
   private probe: ProbeTarget;
   private lastOffset: [number, number, number] | null = null; // for the voxels' motion between frames
   private trailPoints = new Float32Array(TRAIL_SAMPLES);
+  private stillness = new Stillness();
+  private volumeVersion = 0; // counts changes to the volume's textures, for the picture's key
 
   /** Returns null without WebGL2. */
   static create(canvas: HTMLCanvasElement, opts: ViewOptions): CubeView | null {
-    const gl = canvas.getContext('webgl2', { antialias: true, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance' });
+    // No multisampling: the ray-cast gains nothing from it, and clearing and resolving a multisampled
+    // screen costs about a millisecond a frame at 2520×1575. The outline antialiases itself (EDGES_FS).
+    const gl = canvas.getContext('webgl2', { antialias: false, alpha: true, premultipliedAlpha: true, powerPreference: 'high-performance' });
     if (!gl) return null;
     try {
       return new CubeView(gl, opts);
@@ -142,6 +149,7 @@ export class CubeView {
   resetHistory(): void {
     this.accumulator.reset();
     this.lastOffset = null;
+    this.stillness.reset();
   }
 
   /** Whether `accumulate` works here (it needs float render targets). */
@@ -176,6 +184,7 @@ export class CubeView {
 
   setFilter(k: number): void {
     this.filterK = k;
+    this.volumeVersion++;
     if (this.incoming) this.incoming.filtered = 0;
     if (this.volume && this.volume !== this.incoming?.volume) this.refreshFilter(this.volume, 0, this.volume.n);
     if (this.volume) this.volume.bricksStale = true;
@@ -186,6 +195,24 @@ export class CubeView {
     if (this.incoming) this.continueLoad(this.incoming);
     const temporal = this.accumulate && this.accumulator.supported;
     if (!temporal) this.accumulator.reset();
+    this.trail.sample(this.trailPoints);
+    // The pass stays a uniform: as a constant it saves little, and the compiler then treats the
+    // probe and refine passes' floating point differently enough to move soft shadow edges.
+    const render = this.render.get({
+      uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
+      uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
+    });
+    // The passes below leave the pixels outside the cube alone (see screenRect.ts). The scissor
+    // is off for the clears: the targets must be clear everywhere.
+    const rect = cubeRect(camera, pixelWidth, pixelHeight, shift, focal);
+    const still = temporal && this.settled && this.freezeWhenStill;
+    const key = still ? pictureKey({
+      camera, width: pixelWidth, height: pixelHeight, shift, focal, offset: this.offset, threshold: this.threshold,
+      trail: this.trailPoints, samples: this.samples, carve: this.carve, filterK: this.filterK, options: this.opts,
+      volume: this.volumeVersion, program: render === this.render.generic ? 'generic' : 'variant',
+    }) : '';
+    const frozen = this.stillness.frozen(key) && this.accumulator.holds(pixelWidth, pixelHeight);
+
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, pixelWidth, pixelHeight);
     gl.clearColor(0, 0, 0, 0);
@@ -199,7 +226,14 @@ export class CubeView {
     gl.useProgram(this.edges.program);
     this.setCamera(this.edges, camera, pixelWidth, pixelHeight, shift, focal);
     gl.uniform4f(this.edges.uniforms.uColor, r * a, g * a, b * a, a);
-    gl.drawArrays(gl.LINES, 0, 24);
+    gl.drawArrays(gl.TRIANGLES, 0, 72); // 12 edges, a quad each (see EDGES_VS)
+
+    if (frozen) {
+      this.accumulator.present(rect);
+      gl.disable(gl.BLEND);
+      this.passHook?.(null);
+      return;
+    }
 
     const volume = this.volume;
     if (volume && volume !== this.incoming?.volume) {
@@ -218,14 +252,11 @@ export class CubeView {
       gl.bindTexture(gl.TEXTURE_3D, volume.filtered);
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_3D, volume.bricks);
-      const useRender = (mode: RenderMode): void => this.useRender(mode, n, camera, pixelWidth, pixelHeight, shift, focal, temporal);
+      const useRender = (mode: RenderMode): void => this.useRender(render, mode, n, camera, pixelWidth, pixelHeight, shift, focal, temporal);
 
       // How wide a voxel at the cube's centre is on screen, in pixels.
       const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
       const twoPass = temporal && this.samples > 1 && voxelPx >= PROBE_FROM_PX;
-      // The passes below leave the pixels outside the cube alone (see screenRect.ts). The scissor
-      // is off for the clears: the targets must be clear everywhere.
-      const rect = cubeRect(camera, pixelWidth, pixelHeight, shift, focal);
       gl.scissor(...rect);
       this.passHook?.(twoPass ? 'probe' : 'render');
       if (twoPass) {
@@ -298,15 +329,9 @@ export class CubeView {
     gl.disable(gl.STENCIL_TEST);
   }
 
-  /** Puts the ray-cast program for a pass in use, with every uniform set (see RENDER_FS and renderProgram). */
-  private useRender(mode: RenderMode, n: number, camera: CameraBasis, pixelWidth: number, pixelHeight: number, shift: [number, number], focal: number, temporal: boolean): void {
+  /** Puts the ray-cast program in use for a pass, with every uniform set (see RENDER_FS). */
+  private useRender(render: Program, mode: RenderMode, n: number, camera: CameraBasis, pixelWidth: number, pixelHeight: number, shift: [number, number], focal: number, temporal: boolean): void {
     const { gl } = this;
-    // The pass stays a uniform: as a constant it saves little, and the compiler then treats the
-    // probe and refine passes' floating point differently enough to move soft shadow edges.
-    const render = this.render.get({
-      uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
-      uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
-    });
     const u = render.uniforms;
     gl.useProgram(render.program);
     this.setCamera(render, camera, pixelWidth, pixelHeight, shift, focal);
@@ -319,7 +344,6 @@ export class CubeView {
     gl.uniform1i(u.uN, n);
     gl.uniform3fv(u.uOffset, this.offset.map(o => ((o % n) + n) % n));
     gl.uniform1f(u.uThreshold, this.threshold);
-    this.trail.sample(this.trailPoints);
     gl.uniform1fv(u['uTrail[0]'], this.trailPoints);
     gl.uniform1i(u.uGlow, this.opts.glow ? 1 : 0);
     gl.uniform1f(u.uPixelAngle, 2 / (pixelHeight * focal));
@@ -370,6 +394,7 @@ export class CubeView {
   /** One frame's share of loading a cube: uploading slices, then filtering them, then swapping it in. */
   private continueLoad(job: Incoming): void {
     const { gl } = this;
+    this.volumeVersion++;
     const { n } = job.volume;
     const slices = Math.max(1, Math.floor(VOXELS_PER_FRAME / (n * n)));
     if (job.uploaded < n) {

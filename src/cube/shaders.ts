@@ -835,7 +835,10 @@ uniform sampler2D uImage;
 out vec4 fragColor;
 void main() { fragColor = texelFetch(uImage, ivec2(gl_FragCoord.xy), 0); }`;
 
-// The 12 cube edges as 24 line endpoints, projected with the same camera as the ray-cast.
+// The 12 cube edges, each drawn as a quad (two triangles, 6 vertices) a couple of pixels wide around
+// the line, projected with the same camera as the ray-cast. The screen buffer isn't multisampled
+// (resolving one costs about a millisecond a frame at 2520×1575, and the ray-cast gains nothing from
+// it), so the fragment shader works out each pixel's coverage of a one-pixel-wide line itself.
 export const EDGES_VS = /* glsl */ `#version 300 es
 uniform vec2 uResolution;
 uniform vec2 uShift;
@@ -844,24 +847,38 @@ uniform vec3 uEye;
 uniform vec3 uRight;
 uniform vec3 uUp;
 uniform vec3 uForward;
+out float vAcross; // distance from the line, in pixels
 
 const ivec2 EDGES[12] = ivec2[12](
   ivec2(0, 1), ivec2(2, 3), ivec2(4, 5), ivec2(6, 7),
   ivec2(0, 2), ivec2(1, 3), ivec2(4, 6), ivec2(5, 7),
   ivec2(0, 4), ivec2(1, 5), ivec2(2, 6), ivec2(3, 7));
+// Per quad vertex: which end of the line, and which side.
+const vec2 QUAD[6] = vec2[6](vec2(0, -1), vec2(1, -1), vec2(1, 1), vec2(0, -1), vec2(1, 1), vec2(0, 1));
 
-void main() {
-  ivec2 e = EDGES[gl_VertexID / 2];
-  int corner = (gl_VertexID % 2 == 0) ? e.x : e.y;
+// A box corner on screen, in pixels.
+vec2 project(int corner) {
   vec3 world = vec3(corner & 1, (corner >> 1) & 1, (corner >> 2) & 1) * 2.0 - 1.0;
   vec3 d = world - uEye;
-  float z = dot(d, uForward);
-  vec2 screen = vec2(dot(d, uRight), dot(d, uUp)) * uFocal / z + uShift;
-  gl_Position = vec4(screen.x * uResolution.y / uResolution.x, screen.y, 0.0, 1.0);
+  vec2 screen = vec2(dot(d, uRight), dot(d, uUp)) * uFocal / dot(d, uForward) + uShift;
+  return (screen * uResolution.y + uResolution) * 0.5;
+}
+
+void main() {
+  ivec2 e = EDGES[gl_VertexID / 6];
+  vec2 q = QUAD[gl_VertexID % 6];
+  vec2 a = project(e.x), b = project(e.y);
+  vec2 along = b - a;
+  vec2 normal = length(along) > 0.0 ? normalize(vec2(-along.y, along.x)) : vec2(0.0);
+  vAcross = q.y; // the quad reaches a pixel either side, enough for the line's soft edge
+  vec2 px = mix(a, b, q.x) + normal * q.y;
+  gl_Position = vec4(px / uResolution * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
 export const EDGES_FS = /* glsl */ `#version 300 es
 precision mediump float;
 uniform vec4 uColor;
+in float vAcross;
 out vec4 fragColor;
-void main() { fragColor = uColor; }`;
+// A one-pixel-wide line covers a pixel by its overlap with it.
+void main() { fragColor = uColor * clamp(1.0 - abs(vAcross), 0.0, 1.0); }`;

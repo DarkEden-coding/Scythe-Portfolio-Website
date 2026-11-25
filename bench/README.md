@@ -63,7 +63,9 @@ to `bench/results/steps/`: red camera cells, green camera bricks, blue shadow st
 ## Scenes (`scenes.ts`)
 
 Each scene runs at 1440×900 CSS px × DPR 1.75 (`-hi`, 2520×1575) and at 1280×720 × 1 (`-lo`).
-Colouring, palette, filter and threshold are the site's defaults. Nothing moves on its own.
+Colouring, palette, filter and threshold are the site's defaults. Nothing moves on its own. The
+view's freeze (`freezeWhenStill`, see `src/cube/freeze.ts`) is off, so still scenes are timed while
+they accumulate, not as the frozen picture the site shows once they have converged.
 
 | scene | what |
 | --- | --- |

@@ -70,6 +70,11 @@ export class Accumulator {
     return this.frames;
   }
 
+  /** Whether there is a history at this size to present. */
+  holds(w: number, h: number): boolean {
+    return this.frames > 0 && w === this.width && h === this.height;
+  }
+
   /** Binds the target for this frame's rays (colour and first-surface distance, plus a stencil for
    * drawing only some pixels), sized w × h. */
   begin(w: number, h: number): void {
@@ -114,14 +119,21 @@ export class Accumulator {
     this.history = [to, from];
     this.previous = { basis: camera, shift: [...shift], focal };
     this.frames++;
+    this.present(rect);
+  }
 
+  /** Draws the history as it stands into the default framebuffer (premultiplied, over whatever is
+   * there), over `rect`. */
+  present(rect: Rect): void {
+    const { gl } = this;
     this.onPass?.('present');
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, this.width, this.height);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(this.presentProgram.program);
-    this.bindTexture(0, to.texture, this.presentProgram.uniforms.uImage);
+    this.bindTexture(0, this.history![0].texture, this.presentProgram.uniforms.uImage);
+    gl.enable(gl.SCISSOR_TEST);
     gl.scissor(...rect);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.disable(gl.SCISSOR_TEST);

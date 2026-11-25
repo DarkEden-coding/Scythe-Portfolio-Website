@@ -137,11 +137,11 @@ export class OrbitCamera {
 
   update(dt: number): void {
     const k = 1 - Math.pow(0.02, dt); // ease toward the cursor over about a second
-    this.lean.x += (this.lean.tx - this.lean.x) * k;
-    this.lean.y += (this.lean.ty - this.lean.y) * k;
+    this.lean.x = settle(this.lean.x + (this.lean.tx - this.lean.x) * k, this.lean.tx, LEAN_EPSILON);
+    this.lean.y = settle(this.lean.y + (this.lean.ty - this.lean.y) * k, this.lean.ty, LEAN_EPSILON);
     if (this.dragging) return;
     this.yaw += this.velocity;
-    this.velocity *= Math.pow(0.04, dt); // inertia fades in about a second
+    this.velocity = settle(this.velocity * Math.pow(0.04, dt), 0, SPIN_EPSILON); // inertia fades in about a second
     // Idle, the spin builds up to autoRotate over about two seconds instead of starting at full speed.
     const idle = performance.now() - this.lastInput > 1500;
     this.spin = idle ? Math.min(this.autoRotate, this.spin + (this.autoRotate / 2) * dt) : 0;
@@ -179,6 +179,14 @@ export function orbitBasis(yaw: number, pitch: number, distance: number): Camera
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+// Easing never quite arrives, so the camera would keep moving by invisible amounts for seconds,
+// and the cube only stops casting rays once nothing moves (see freeze.ts). Within
+// these the lean and the leftover spin snap to where they're heading: a lean of 1e-4 is 2e-5 rad of
+// camera turn, a few hundredths of a pixel.
+const LEAN_EPSILON = 1e-4;
+const SPIN_EPSILON = 1e-6; // radians per frame
+const settle = (v: number, goal: number, epsilon: number) => (Math.abs(v - goal) < epsilon ? goal : v);
 function normalize(v: V3): V3 {
   const l = Math.hypot(v[0], v[1], v[2]);
   return [v[0] / l, v[1] / l, v[2] / l];

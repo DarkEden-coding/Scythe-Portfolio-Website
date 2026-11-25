@@ -39,6 +39,7 @@ if (!view) throw new Error('No WebGL2');
 if (STEPS) view.opts.edgeColor = [0, 0, 0, 0];
 const { gl } = view;
 view.waitForShaders = true;
+view.freezeWhenStill = false; // still scenes are timed, and their noise measured, while they accumulate
 view.setFilter(FILTER_K);
 const timer = GpuTimer.create(gl);
 
