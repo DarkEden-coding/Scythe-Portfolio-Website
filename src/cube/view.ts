@@ -8,7 +8,7 @@ import { pictureKey, Stillness } from './freeze.ts';
 import { createProgram, hexToRgb, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { ProbeTarget } from './probe.ts';
-import { cubeRect } from './screenRect.ts';
+import { cubeRect, type Rect } from './screenRect.ts';
 import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, OCCUPANCY_FS, PROBE_EDGES_FS, REACH_FS, REACH_PLANE_FS, RENDER_FS } from './shaders.ts';
 import { ThresholdTrail, TRAIL_SAMPLES } from './thresholdTrail.ts';
 import { ProgramVariants } from './variants.ts';
@@ -127,6 +127,7 @@ export class CubeView {
   freezeWhenStill = true;
 
   private passHook: ((pass: Pass | null) => void) | null = null;
+  private warmed = new WeakSet<Program>(); // variants drawn once already (see warmUp)
   private filter: Program;
   private brickPass: Program;
   private reachPlanePass: Program;
@@ -253,10 +254,17 @@ export class CubeView {
       uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
     };
     const render = this.render.get(settings);
-    // The site draws one ray while the cube moves and two once it's still. Compiling the other
-    // count's variant only when the cube first settles cost two frames of 80-130 ms on Apple M5
-    // (the compile competes with drawing); started now, it compiles while the cube loads.
-    this.render.prepare({ ...settings, uSamples: this.samples === 1 ? 2 : 1 });
+    // Variants the site will soon want compile in the background beforehand. It draws one ray while
+    // the cube moves and two once it's still; compiling the other count's variant only when the
+    // cube first settled cost two frames of 80-130 ms on Apple M5 (the compile competes with
+    // drawing). Flying to a project cuts the bore from the flight's first frame, and flying back
+    // takes it away, so the other bore setting's variants compile too, once this frame's is ready
+    // (not to hold that one up); left to the flight, the generic program drew its first quarter
+    // second. Each is drawn once as soon as it is ready (see warmUp).
+    const prepared = [this.render.prepare({ ...settings, uSamples: this.samples === 1 ? 2 : 1 })];
+    if (render !== this.render.generic) {
+      for (const uSamples of [1, 2]) prepared.push(this.render.prepare({ ...settings, uSamples, CARVING: !settings.CARVING }));
+    }
     // The passes below leave the pixels outside the cube alone (see screenRect.ts). The scissor
     // is off for the clears: the targets must be clear everywhere.
     const rect = cubeRect(camera, pixelWidth, pixelHeight, shift, focal);
@@ -316,7 +324,7 @@ export class CubeView {
       gl.bindTexture(gl.TEXTURE_3D, volume.reach);
       gl.activeTexture(gl.TEXTURE7);
       gl.bindTexture(gl.TEXTURE_2D, volume.occupancy);
-      const useRender = (mode: RenderMode): void => this.useRender(render, mode, n, occupancy, camera, pixelWidth, pixelHeight, shift, focal, temporal);
+      const useRender = (mode: RenderMode, program = render): void => this.useRender(program, mode, n, occupancy, camera, pixelWidth, pixelHeight, shift, focal, temporal);
 
       // How wide a voxel at the cube's centre is on screen, in pixels.
       const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
@@ -347,6 +355,7 @@ export class CubeView {
         this.refineEdges(() => useRender(2));
       }
       else {
+        if (temporal) this.warmUp(prepared, rect, useRender);
         useRender(0);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       }
@@ -358,6 +367,23 @@ export class CubeView {
   }
 
   // ---------- internals ----------
+
+  /** Draws one pixel with each newly compiled variant, into the accumulator just before the frame's
+   * own draw overwrites it. A shader cache that has never seen a variant (a first visit) builds
+   * its GPU pipeline at the first draw, which held up the frame a variant was first used in by
+   * 70-100 ms on Apple M5; drawn early, that happens while the variant isn't needed yet. */
+  private warmUp(prepared: (Program | null)[], rect: Rect, useRender: (mode: RenderMode, program: Program) => void): void {
+    const { gl } = this;
+    for (const program of prepared) {
+      if (!program || this.warmed.has(program)) continue;
+      this.warmed.add(program);
+      useRender(0, program);
+      gl.scissor(rect[0], rect[1], 1, 1);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.scissor(...rect);
+      return; // one a frame, so their costs don't add up in one frame
+    }
+  }
 
   /** After the probe pass, into the bound target: marks the probe's edges in the stencil, copies its
    * colour everywhere else, and casts the refine pass's rays at the marks (see RENDER_FS main).

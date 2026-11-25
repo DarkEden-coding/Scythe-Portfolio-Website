@@ -32,20 +32,25 @@ export class ProgramVariants {
   /** The variant for these settings if it's ready, otherwise the generic program. */
   get(defines: Defines): Program {
     if (!this.parallel && !this.waitForCompile) return this.generic;
-    const variant = this.start(defines);
-    if (!(variant instanceof WebGLProgram)) return variant;
-    // Unlike LINK_STATUS, this answers without waiting for the compile.
-    if (!this.waitForCompile && !this.gl.getProgramParameter(variant, this.parallel!.COMPLETION_STATUS_KHR)) return this.generic;
-    const program = finishProgram(this.gl, variant);
-    this.variants.set(key(defines), program);
-    return program;
+    return this.finished(defines) ?? this.generic;
   }
 
   /** Starts compiling the variant for these settings in the background, if it isn't already, so
-   * it's ready by the time it's asked for. Does nothing where variants aren't compiled in the
-   * background. */
-  prepare(defines: Defines): void {
-    if (this.parallel && !this.waitForCompile) this.start(defines);
+   * it's ready by the time it's asked for; the variant once it is. Does nothing where variants
+   * aren't compiled in the background. */
+  prepare(defines: Defines): Program | null {
+    return this.parallel && !this.waitForCompile ? this.finished(defines) : null;
+  }
+
+  /** The variant, started if it isn't yet, once its compile has finished. */
+  private finished(defines: Defines): Program | null {
+    const variant = this.start(defines);
+    if (!(variant instanceof WebGLProgram)) return variant;
+    // Unlike LINK_STATUS, this answers without waiting for the compile.
+    if (!this.waitForCompile && !this.gl.getProgramParameter(variant, this.parallel!.COMPLETION_STATUS_KHR)) return null;
+    const program = finishProgram(this.gl, variant);
+    this.variants.set(key(defines), program);
+    return program;
   }
 
   private start(defines: Defines): WebGLProgram | Program {
