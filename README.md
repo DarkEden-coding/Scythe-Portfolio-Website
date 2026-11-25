@@ -61,14 +61,15 @@ are five presets, each at four grid sizes (64³, 112³, 160³, 320³).
   the cubes of bricks around it (radius 1, 2 and 4, rebuilt with the brick map, so not while the
   threshold sweeps), and a ray in an empty brick jumps out of the largest of those cubes that is
   empty too, with the same code as a one-brick jump: at home that cuts a camera ray's brick steps
-  from 26 to 10. The brick passes draw into 2D atlases where they can, since a draw per layer of a
-  3D texture costs more than the work.
-  Voxels are read through the sampler with
-  REPEAT wrapping, so the periodic volume wraps for free instead of costing compares per read.
+  from 26 to 10, at a project from 15 to 8. The brick passes draw into 2D atlases where they can,
+  since a draw per layer of a 3D texture costs more than the work. Voxels are read through the
+  sampler with REPEAT wrapping, so the periodic volume wraps for free instead of costing compares
+  per read.
 - **The bore:** at a project the cube has a bore cut towards the camera. What it carves is baked
   into the occupancy bits below (rebuilt only when the bore, the volume's place or the threshold
   changes, so every frame of a flight but not while parked), so rays, brick skips and shading read
-  it there instead of working it out per cell. Rays also jump straight across its hollow (a
+  it there instead of working it out per cell; the brick reach still applies, since the bore only
+  takes voxels away. Rays also jump straight across its hollow (a
   ray–capsule exit, wider as the threshold rises), so they don't step through the empty middle.
 - **Shading:** colour comes from the chaos level and the neighbouring voxels, with soft shadows
   from points on a sun disk. A bit volume of which voxels show at the current threshold (64 bits
@@ -78,8 +79,10 @@ are five presets, each at four grid sizes (64³, 112³, 160³, 320³).
   rays shares one, cast after both are traced.
 - **Specialised shaders:** the ray-cast compiles a variant per combination of lighting, colouring,
   glow, rays per pixel and bore (`#define`s, `variants.ts`), in the background where the browser
-  allows, so each draw runs only the code it needs. Passes are scissored to the cube's rectangle on
-  screen.
+  allows, so each draw runs only the code it needs. The variants the site will want next (the
+  other ray count, the other bore setting) compile ahead and draw one pixel each as they finish,
+  so a first visit doesn't stall when the cube settles or the first flight starts. Passes are
+  scissored to the cube's rectangle on screen.
 - **Temporal AA:** while the camera is still, rays are jittered and the sun disk turns a little
   each frame. Earlier frames are reprojected through the first surface's depth, and Catmull-Rom
   sampling and variance clipping keep that from ghosting. Measured against a 64-ray reference
