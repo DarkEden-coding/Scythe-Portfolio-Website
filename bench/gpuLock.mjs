@@ -9,8 +9,10 @@ import { join } from 'node:path';
 // every run would get a lock of its own.
 const LOCK = '/tmp/cube-bench-gpu.lock';
 
+// EPERM means the process exists but belongs to someone this one can't signal (a sandboxed agent,
+// say): it is alive, and taking its lock would put two runs on the GPU.
 function alive(pid) {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code === 'EPERM'; }
 }
 
 /** Waits until this process holds the lock. Returns a function that releases it. */
@@ -29,7 +31,10 @@ export async function acquireGpuLock() {
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
-  const release = () => rmSync(LOCK, { recursive: true, force: true });
+  // Only while the lock is still this run's: after a takeover, removing it would let a third run in.
+  const release = () => {
+    if (readFileSafe(join(LOCK, 'pid')) === String(process.pid)) rmSync(LOCK, { recursive: true, force: true });
+  };
   process.once('exit', release);
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => { release(); process.exit(130); });
   return release;
