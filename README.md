@@ -71,7 +71,10 @@ are five presets, each at four grid sizes (64³, 112³, 160³, 320³).
 
 ### Projects (`src/projects/`)
 
-`content.ts` holds the text and screenshots. `stations.ts` places each project in a preset,
+`content.ts` holds the text and screenshots. The screenshots live in `src/assets/projects/` so
+Vite gives them hashed `/assets/` URLs, and a rig's screenshots only load the first time it opens.
+Projects with a `page` link to a static write-up under `projects/<id>/index.html` (EagleEye and
+Aerie), built as extra Vite entries (`vite.config.ts`) and styled by `src/pages/project.css`. `stations.ts` places each project in a preset,
 with its camera pose and chaos threshold. `stage.ts` lays the panels out in 3D with CSS
 `matrix3d` so they line up with the WebGL camera.
 
@@ -94,8 +97,11 @@ at several horizons (5–60 s). It then packs the horizon the site uses into a b
 and copies it to `public/cubes/`. Changing `CHAOS` in `src/presets.ts` only needs a repack, which
 is quick. Changing a preset's lengths, masses or gravity needs a re-bake.
 
-Visitors whose browsers cached older cubes get the new ones automatically: the cache is named
-after the bake settings.
+Visitors whose browsers cached older cubes get the new ones automatically. `CUBE_VERSION` in
+`src/presets.ts` is a hash of the bake settings; it names the Cache Storage copy and is in every cube
+URL (`/cubes/0-320.cube?v=…`), which is what lets `public/_headers` cache the files for a year. If
+the cube files change without the settings changing (a fix to the baker itself), bump
+`BAKE_REVISION` there.
 
 You can run the baker by hand too:
 
@@ -116,8 +122,16 @@ be reached, it keeps the last saved file.
 ## Search and link previews
 
 The `<head>` in `index.html` carries the description, canonical URL, Open Graph and Twitter tags,
-and JSON-LD describing the site and me. `public/` holds `robots.txt`, `sitemap.xml`,
-`site.webmanifest` and the icons.
+and JSON-LD describing the site and me. Each write-up page has its own title, description,
+canonical URL and JSON-LD. `public/` holds `robots.txt`, `sitemap.xml` (list new write-up pages
+there), `site.webmanifest` and the icons.
+
+### Caching
+
+`public/_headers` sets browser lifetimes. Everything under `/assets/` (Vite output, with content
+hashes) and the versioned cubes cache for a year as immutable. Files at fixed URLs (`og.jpg`,
+icons, `brand/`, `sitemap.xml`) cache for an hour or a day. HTML keeps Cloudflare's default,
+`max-age=0, must-revalidate`, so a deploy shows up at once.
 
 `public/og.jpg` is the 1200×630 image shown when the site is linked. Its source is
 `scripts/og/card.html`: the hero's nav and id cards, restyled from `src/styles.css`, over

@@ -1,9 +1,12 @@
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import './styles.css';
+import poster720 from './assets/hero/poster-720.webp';
+import poster1440 from './assets/hero/poster-1440.webp';
 
 import { chaosToLevel, levelToChaos } from './cube/cubeFile.ts';
 import { Flight, type Pose } from './cube/flight.ts';
+import { isSoftwareRenderer } from './cube/gl.ts';
 import { OrbitCamera, orbitBasis } from './cube/orbitCamera.ts';
 import { type Cube, unpackCube } from './cube/unpack.ts';
 import { type ColorBy, CubeView, type Samples } from './cube/view.ts';
@@ -82,13 +85,19 @@ const view = CubeView.create(canvas, {
   glow: false, glowFor: 0.45, base: '#ecebe6', accent: PLAIN_GLOW, colorBy, ramp: PALETTES[palette].ramp, sun: lighting === 'sun', edgeColor: [1, 1, 1, 0.16],
 });
 
+// Rendering on the CPU, Ultra runs at a few frames a second; start where it can keep up.
+if (view && !userPickedQuality && isSoftwareRenderer(view.gl)) quality = 'low';
+
 const loader = new Loader($('#loader'));
 if (!view) {
   // No WebGL2: show the still and drop the controls that drive it.
   loader.active = false;
   $('#loader').hidden = true;
   canvas.hidden = true;
-  $('.hero__poster').hidden = false;
+  const poster = $<HTMLImageElement>('.hero__poster');
+  poster.srcset = `${poster720} 720w, ${poster1440} 1440w`;
+  poster.sizes = '100vw';
+  poster.hidden = false;
   $('.sim-card').hidden = true;
   hint.hidden = true;
 }
@@ -475,7 +484,7 @@ bindChoice<Resolution>('resolution', resolution, r => {
 // as a third of a second runs below 50 fps, and all at once below 25 fps: at a station, where the
 // rays are long, extra rays can take frames past 100 ms, and going down one step per 20 of those
 // frames lagged for seconds. The rest wait for two windows of 1.5 s below 40 fps, so the GPU
-// clocking up when the cube settles doesn't count.
+// clocking up when the cube settles doesn't count, or one window below 15 fps.
 function adapt(dt: number): void {
   if (!view || loading) return;
   if (view.samples !== frameStats.samples) {
@@ -488,11 +497,13 @@ function adapt(dt: number): void {
   const supersampling = view.samples > 1;
   frameStats.times.push(dt);
   const count = frameStats.times.length;
-  // Extra rays are judged over 20 frames or a third of a second (at least 3 frames), whichever
-  // comes first.
+  // Extra rays are judged over 20 frames or a third of a second, the rest over 90 frames or 1.5 s,
+  // whichever comes first (at least 3 frames). Counting time too matters on a weak GPU: at 4 fps,
+  // 90 frames alone took over 20 s per window.
+  const elapsed = frameStats.times.reduce((sum, t) => sum + t, 0);
   const windowDone = supersampling
-    ? count >= 20 || (count >= 3 && frameStats.times.reduce((sum, t) => sum + t, 0) >= 1 / 3)
-    : count >= 90;
+    ? count >= 20 || (count >= 3 && elapsed >= 1 / 3)
+    : count >= 90 || (count >= 3 && elapsed >= 1.5);
   if (!windowDone) return;
   const median = frameStats.times.sort((a, b) => a - b)[frameStats.times.length >> 1];
   frameStats.times = [];
@@ -503,7 +514,8 @@ function adapt(dt: number): void {
     return;
   }
   if (median <= 1 / 40) { frameStats.slowWindows = 0; return; }
-  if (++frameStats.slowWindows < 2) return;
+  // Below 15 fps it can't be the GPU clocking up: step down after one window, not two.
+  if (++frameStats.slowWindows < 2 && median <= 1 / 15) return;
   frameStats.slowWindows = 0;
   if (resolution === 'auto' && renderScale > 0.6) {
     renderScale -= 0.15;

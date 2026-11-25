@@ -2,14 +2,14 @@
 // Level v stands for a Lyapunov exponent of v / (levels - 1) · max e-folds per second (CHAOS in
 // presets.ts). scripts/bake.mjs writes them.
 
-import { CHAOS, GRAVITY, PRESETS } from '../presets.ts';
+import { CHAOS, CUBE_VERSION } from '../presets.ts';
 
 // Cube files are kept in Cache Storage after their first download, so a later visit, or the
 // slideshow coming back round to a preset, doesn't fetch 20 MB again, whatever the host's cache
-// headers say. The cache is named after what the cubes were baked from: change that (and re-bake)
-// and the old files are dropped.
+// headers say. The cache is named after the baked set (CUBE_VERSION): re-bake and the old files
+// are dropped.
 const CACHE_PREFIX = 'cubes:';
-const CACHE = CACHE_PREFIX + JSON.stringify({ CHAOS, GRAVITY, PRESETS });
+const CACHE = CACHE_PREFIX + CUBE_VERSION;
 let cubeCache: Promise<Cache | null> | null = null;
 
 function openCache(): Promise<Cache | null> {

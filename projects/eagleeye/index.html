@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EagleEye: multi-camera AprilTag localization for FRC · Elliot Scully</title>
+  <meta name="description" content="EagleEye tells an FRC robot where it is on the field from AprilTags in several camera feeds. How Elliot Scully built it: a browser pipeline editor, a Rust detector and tag prediction, and a 21,600-frame synthetic benchmark." />
+  <meta name="author" content="Elliot Scully" />
+  <link rel="canonical" href="https://elliotscully.dev/projects/eagleeye/" />
+  <meta name="theme-color" content="#1c1c1f" />
+
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Elliot Scully" />
+  <meta property="og:url" content="https://elliotscully.dev/projects/eagleeye/" />
+  <meta property="og:title" content="EagleEye: multi-camera AprilTag localization for FRC" />
+  <meta property="og:description" content="A robot vision system for FRC: camera pipelines built as node graphs in the browser, a Rust AprilTag detector, and tag prediction so the detector only scans where tags should be." />
+  <meta property="og:image" content="https://elliotscully.dev/og.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale" content="en_US" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareSourceCode",
+        "@id": "https://elliotscully.dev/projects/eagleeye/#project",
+        "name": "EagleEye Vision System",
+        "description": "Multi-camera AprilTag localization and object detection for FRC robots, configured through a browser-based pipeline editor.",
+        "url": "https://elliotscully.dev/projects/eagleeye/",
+        "codeRepository": "https://github.com/Scythe-Engineering/EagleEye-Vision-System",
+        "programmingLanguage": ["Python", "Rust", "JavaScript"],
+        "author": { "@id": "https://elliotscully.dev/#person" },
+        "dateCreated": "2024-02-03"
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Elliot Scully", "item": "https://elliotscully.dev/" },
+          { "@type": "ListItem", "position": 2, "name": "Projects", "item": "https://elliotscully.dev/#projects" },
+          { "@type": "ListItem", "position": 3, "name": "EagleEye", "item": "https://elliotscully.dev/projects/eagleeye/" }
+        ]
+      },
+      { "@type": "Person", "@id": "https://elliotscully.dev/#person", "name": "Elliot Scully", "url": "https://elliotscully.dev/" }
+    ]
+  }
+  </script>
+
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/src/pages/project.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="wrap page-nav">
+    <div class="card">
+      <a class="page-nav__brand" href="/" aria-label="Elliot Scully, home">
+        <img src="/src/assets/brand/mark-red.webp" alt="" width="26" height="23" />
+        <img src="/src/assets/brand/wordmark-white.webp" alt="Scythe Engineering" width="104" height="21" />
+      </a>
+      <a href="/#projects">All projects</a>
+    </div>
+  </header>
+
+  <main class="writeup" id="main">
+    <p class="writeup__meta mono">2024–26 · Python, Rust, OpenCV, Three.js, NetworkTables</p>
+    <h1>EagleEye</h1>
+    <p class="writeup__lede">A vision system that tells an FRC robot where it is on the field, from the AprilTags its cameras can see. It runs several cameras on a Raspberry Pi or similar Linux board, and teams set it up in a browser.</p>
+    <p class="writeup__links">
+      <a href="https://github.com/Scythe-Engineering/EagleEye-Vision-System" target="_blank" rel="noopener">Code on GitHub</a>
+      <a href="https://scythe-engineering.github.io/EagleEye-Docs/" target="_blank" rel="noopener">Documentation</a>
+    </p>
+
+    <figure>
+      <img src="/src/assets/projects/eagleeye-1.webp" alt="EagleEye 3D View tab showing the 2026 FRC field with the robot model at its reported pose" width="1280" height="800" />
+      <figcaption>The 3D view: the robot drawn on the 2026 field at the pose EagleEye reports.</figcaption>
+    </figure>
+
+    <h2>The problem</h2>
+    <p>In FIRST Robotics Competition, robots drive themselves for the first part of each match and aim at targets the rest of the time. Both need the robot to know where it is. The field has AprilTags, printed square markers at known positions, so a camera that sees a tag can work out its own pose from it.</p>
+    <p>Doing that on a robot is harder than it sounds. Teams want several cameras for coverage, but they run on a small onboard computer next to everything else. Full-frame tag detection on every frame from every camera doesn't fit, a single bad detection can throw the pose off by metres, and each team's camera mounts are different, so a fixed pipeline doesn't work for everyone.</p>
+
+    <h2>What I built</h2>
+    <p>I started EagleEye in February 2024 and have written most of it: about 1,000 of its commits are mine.</p>
+    <ul>
+      <li><b>A pipeline editor in the browser.</b> Each camera's processing is a node graph: device input, detection, pose solving, filtering, and output to NetworkTables. Teams wire it up and tune it while the robot runs, with per-node timings on screen.</li>
+      <li><b>A Rust AprilTag detector, PnP refiner and outlier filter.</b> The hot path moved out of Python into Rust modules, and the outlier filter rejects poses that disagree with the rest before they reach the robot.</li>
+      <li><b>Tag prediction.</b> From the last camera pose and the field's tag map, a Rust preprocessor projects where each tag should appear and hands the detector only those regions. If none of them holds a tag, it falls back to one full-frame search, so coverage isn't lost.</li>
+      <li><b>Object detection</b> on CPU, CUDA or MemryX MX3 accelerators, in the same graphs.</li>
+      <li><b>A robot-side library</b> that reads EagleEye's poses and detections over NetworkTables.</li>
+    </ul>
+
+    <figure>
+      <img src="/src/assets/projects/eagleeye-3.webp" alt="Pipeline Builder flow graph from Device Input through AprilTag detection and PnP to NetworkTables, with per-node timings" width="1280" height="710" />
+      <figcaption>An AprilTag localization graph, from camera input through detection and PnP to NetworkTables.</figcaption>
+    </figure>
+
+    <h2>How it's measured</h2>
+    <p>Real match footage has no ground truth, so I built a synthetic benchmark. A Blender pipeline renders six 30-second robot routes on the CAD model of the 2026 field: <b>21,600 frames at 1280×800 and 120 FPS</b>, with varied lighting and exposure, sensor noise, defocus, motion blur and lens distortion. The renderer checks the routes against the field geometry, and each frame comes with the camera's true pose.</p>
+    <p>Every frame is replayed through the same graphs the robot runs, full-frame and with tag prediction, using the production scheduler, detector and PnP. Each run writes per-frame pose and detection scores, pipeline and detector timings, and hashes of the dataset, graphs, calibration and environment, so two builds can be compared frame by frame.</p>
+    <p>The pipeline editor reports live throughput as well: the graph below runs at <b>147 FPS</b>, with each node's time shown on it.</p>
+
+    <figure>
+      <img src="/src/assets/projects/eagleeye-2.webp" alt="Pipeline editor running at 147 FPS, with per-node timings and the dashed camera pose feedback edge" width="730" height="340" loading="lazy" decoding="async" />
+      <figcaption>The camera pose feeds back into the next frame's tag prediction (the dashed edge).</figcaption>
+    </figure>
+
+    <h2>Built with</h2>
+    <ul class="writeup__stack mono" aria-label="Built with">
+      <li>Python</li><li>Rust</li><li>OpenCV</li><li>Three.js</li><li>NetworkTables</li><li>Blender</li>
+    </ul>
+  </main>
+
+  <footer class="wrap page-foot">
+    <div class="card">
+      <span>Elliot Scully · <a href="mailto:elliotwscully@gmail.com">elliotwscully@gmail.com</a></span>
+      <nav aria-label="More">
+        <a href="/projects/aerie/">Aerie</a>
+        <a href="/#projects">All projects</a>
+        <a href="https://github.com/DarkEden-coding">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

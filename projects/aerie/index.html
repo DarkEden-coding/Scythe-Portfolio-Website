@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Aerie: a fabrication tracker for FRC robot parts · Elliot Scully</title>
+  <meta name="description" content="Aerie tracks every part an FRC team builds, from CAD review through CNC or hand fabrication to done. How Elliot Scully built it with Flask, Three.js and the Onshape API." />
+  <meta name="author" content="Elliot Scully" />
+  <link rel="canonical" href="https://elliotscully.dev/projects/aerie/" />
+  <meta name="theme-color" content="#1c1c1f" />
+
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Elliot Scully" />
+  <meta property="og:url" content="https://elliotscully.dev/projects/aerie/" />
+  <meta property="og:title" content="Aerie: a fabrication tracker for FRC robot parts" />
+  <meta property="og:description" content="Tracks every part an FRC team builds, from CAD review to finished part, with 3D previews from uploaded STEP files and drawings pulled from Onshape." />
+  <meta property="og:image" content="https://elliotscully.dev/og.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale" content="en_US" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareSourceCode",
+        "@id": "https://elliotscully.dev/projects/aerie/#project",
+        "name": "Aerie Part Management",
+        "description": "A fabrication tracker for FRC robot parts, from CAD review through CNC or hand fabrication to completion.",
+        "url": "https://elliotscully.dev/projects/aerie/",
+        "codeRepository": "https://github.com/frc3322/Aerie-Part-Management",
+        "programmingLanguage": ["Python", "JavaScript"],
+        "author": { "@id": "https://elliotscully.dev/#person" },
+        "dateCreated": "2025-11-23"
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Elliot Scully", "item": "https://elliotscully.dev/" },
+          { "@type": "ListItem", "position": 2, "name": "Projects", "item": "https://elliotscully.dev/#projects" },
+          { "@type": "ListItem", "position": 3, "name": "Aerie", "item": "https://elliotscully.dev/projects/aerie/" }
+        ]
+      },
+      { "@type": "Person", "@id": "https://elliotscully.dev/#person", "name": "Elliot Scully", "url": "https://elliotscully.dev/" }
+    ]
+  }
+  </script>
+
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <link rel="stylesheet" href="/src/pages/project.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="wrap page-nav">
+    <div class="card">
+      <a class="page-nav__brand" href="/" aria-label="Elliot Scully, home">
+        <img src="/src/assets/brand/mark-red.webp" alt="" width="26" height="23" />
+        <img src="/src/assets/brand/wordmark-white.webp" alt="Scythe Engineering" width="104" height="21" />
+      </a>
+      <a href="/#projects">All projects</a>
+    </div>
+  </header>
+
+  <main class="writeup" id="main">
+    <p class="writeup__meta mono">2025–26 · Python, Flask, SQLAlchemy, Three.js, Vite</p>
+    <h1>Aerie</h1>
+    <p class="writeup__lede">A fabrication tracker for FRC robot parts. Every part a team designs goes from CAD review through CNC or hand fabrication to done, so the shop always knows what to make next and who has it.</p>
+    <p class="writeup__links">
+      <a href="https://aeriedemo.scytheengineering.com/" target="_blank" rel="noopener">Live demo</a>
+      <a href="https://github.com/frc3322/Aerie-Part-Management" target="_blank" rel="noopener">Code on GitHub</a>
+    </p>
+
+    <figure>
+      <img src="/src/assets/projects/aerie-1.webp" alt="CNC tab with part cards for a gusset, an arm bracket and an intake plate, each with a rendered 3D view of its model" width="1280" height="550" />
+      <figcaption>The CNC queue. Each card shows a 3D render of the part's model.</figcaption>
+    </figure>
+
+    <h2>The problem</h2>
+    <p>An FRC team designs and builds a new robot in a few weeks, and a robot is a few hundred custom parts. During build season, parts get cut on a CNC router or made by hand by whoever is in the shop that day, and the state of each one tends to live in a spreadsheet, a group chat, or someone's head.</p>
+    <p>That breaks down in predictable ways. A part gets cut from a CAD revision that changed an hour ago. Two people make the same bracket. Nobody can say what's still missing before the robot can be assembled. And students on the shop floor have to dig through CAD to find out what a part even looks like.</p>
+
+    <h2>What I built</h2>
+    <p>I built Aerie for FRC Team 3322's shop, starting in November 2025, and wrote nearly all of its 165 commits.</p>
+    <ul>
+      <li><b>A fixed workflow.</b> Every part moves through Review, then CNC or Hand Fab, then Completed, with the student who has it, its subsystem and material. Live search filters across all of them.</li>
+      <li><b>3D previews from STEP files.</b> An uploaded STEP file is converted to GLB on the server with cascadio. The browser renders eight views of it with Three.js once and uploads them, so every later visit shows images instead of loading a 3D model.</li>
+      <li><b>Onshape integration.</b> Parts link back to their Onshape documents, and Aerie pulls drawing PDFs through the Onshape API, so the drawing at the machine matches the current design.</li>
+      <li><b>Easy for a team to run.</b> Flask and SQLAlchemy on SQLite or PostgreSQL, an interactive setup script, and API-key authentication. A git-based updater in the settings pulls new versions, runs migrations, rebuilds the frontend and restarts the server.</li>
+    </ul>
+
+    <h2>Where it stands</h2>
+    <p>The statistics page shows how the shop is doing: completed and in-progress counts, average completion time, and how many parts sit at each stage. A <a href="https://aeriedemo.scytheengineering.com/" target="_blank" rel="noopener">public demo</a> runs with sample parts.</p>
+
+    <figure>
+      <img src="/src/assets/projects/aerie-2.webp" alt="System statistics: completed and in-progress counts, average completion time and parts by workflow stage" width="640" height="673" loading="lazy" decoding="async" />
+      <figcaption>The statistics page.</figcaption>
+    </figure>
+
+    <h2>Built with</h2>
+    <ul class="writeup__stack mono" aria-label="Built with">
+      <li>Python</li><li>Flask</li><li>SQLAlchemy</li><li>cascadio</li><li>Three.js</li><li>Vite</li><li>Onshape API</li>
+    </ul>
+  </main>
+
+  <footer class="wrap page-foot">
+    <div class="card">
+      <span>Elliot Scully · <a href="mailto:elliotwscully@gmail.com">elliotwscully@gmail.com</a></span>
+      <nav aria-label="More">
+        <a href="/projects/eagleeye/">EagleEye</a>
+        <a href="/#projects">All projects</a>
+        <a href="https://github.com/DarkEden-coding">GitHub</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

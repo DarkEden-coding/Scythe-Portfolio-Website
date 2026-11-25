@@ -1,5 +1,15 @@
 // Portfolio projects shown inside the cube. Content only; where each sits in the cube is in stations.ts.
 
+// Screenshots go through Vite, so they ship under /assets/ with a content hash and cache for a year.
+const SHOTS = import.meta.glob<string>('../assets/projects/*.webp', { eager: true, query: '?url', import: 'default' });
+
+/** The built URL of src/assets/projects/<name>.webp. */
+function shot(name: string): string {
+  const url = SHOTS[`../assets/projects/${name}.webp`];
+  if (!url) throw new Error(`no screenshot named ${name}`);
+  return url;
+}
+
 export interface ProjectContent {
   id: string;          // kebab-case, unique, e.g. 'spaghetti-detection'
   name: string;        // display name, short (max ~22 chars)
@@ -12,7 +22,8 @@ export interface ProjectContent {
   repo: string;        // https://github.com/<owner>/<repo>
   live?: string;       // only if a deployed site really exists and responds
   stars?: number;      // only if > 0
-  images: { src: string; alt: string; width: number; height: number }[]; // 0-3 images, src like '/projects/<id>-1.webp'
+  page?: string;       // path of its write-up page, if it has one, e.g. '/projects/eagleeye/'
+  images: { src: string; alt: string; width: number; height: number }[]; // 0-3 images, src: shot('<id>-1') for src/assets/projects/<id>-1.webp
   thumbFocus?: string; // where the list's 16:9 crop of the first image centres (CSS object-position); default its top
 }
 
@@ -32,22 +43,23 @@ export const PROJECTS: ProjectContent[] = [
     stack: ['Python', 'Rust', 'OpenCV', 'Three.js', 'NetworkTables'],
     year: '2024–26',
     repo: 'https://github.com/Scythe-Engineering/EagleEye-Vision-System',
+    page: '/projects/eagleeye/',
     stars: 5,
     images: [
       {
-        src: '/projects/eagleeye-1.webp',
+        src: shot('eagleeye-1'),
         alt: 'EagleEye 3D View tab showing the 2026 FRC field with the robot model at its reported pose',
         width: 1280,
         height: 800,
       },
       {
-        src: '/projects/eagleeye-2.webp',
+        src: shot('eagleeye-2'),
         alt: 'Pipeline editor running at 147 FPS, with per-node timings and the dashed camera pose feedback edge',
         width: 730,
         height: 340,
       },
       {
-        src: '/projects/eagleeye-3.webp',
+        src: shot('eagleeye-3'),
         alt: 'Pipeline Builder flow graph from Device Input through AprilTag detection and PnP to NetworkTables, with per-node timings',
         width: 1280,
         height: 710,
@@ -69,17 +81,18 @@ export const PROJECTS: ProjectContent[] = [
     stack: ['Python', 'Flask', 'SQLAlchemy', 'Three.js', 'Vite'],
     year: '2025–26',
     repo: 'https://github.com/frc3322/Aerie-Part-Management',
+    page: '/projects/aerie/',
     live: 'https://aeriedemo.scytheengineering.com/',
     stars: 1,
     images: [
       {
-        src: '/projects/aerie-1.webp',
+        src: shot('aerie-1'),
         alt: 'CNC tab with part cards for a gusset, an arm bracket and an intake plate, each with a rendered 3D view of its model',
         width: 1280,
         height: 550,
       },
       {
-        src: '/projects/aerie-2.webp',
+        src: shot('aerie-2'),
         alt: 'System statistics: completed and in-progress counts, average completion time and parts by workflow stage',
         width: 640,
         height: 673,
@@ -104,13 +117,13 @@ export const PROJECTS: ProjectContent[] = [
     live: 'https://mutualmeet.app/',
     images: [
       {
-        src: '/projects/mutual-1.webp',
+        src: shot('mutual-1'),
         alt: 'Event page in dark mode: availability grid next to the group heatmap, with the ranked best times above',
         width: 1280,
         height: 900,
       },
       {
-        src: '/projects/mutual-2.webp',
+        src: shot('mutual-2'),
         alt: 'Group heatmap in the dark Terminal theme, hovering a slot to list who is available',
         width: 1280,
         height: 800,
@@ -135,13 +148,13 @@ export const PROJECTS: ProjectContent[] = [
     stars: 9,
     images: [
       {
-        src: '/projects/spaghetti-detection-1.webp',
+        src: shot('spaghetti-detection-1'),
         alt: 'Scythe setup wizard finding a printer on the network and showing a test frame from the bed camera',
         width: 1100,
         height: 900,
       },
       {
-        src: '/projects/spaghetti-detection-2.webp',
+        src: shot('spaghetti-detection-2'),
         alt: 'Discord alert with a camera frame and a green box around detected spaghetti',
         width: 502,
         height: 490,
@@ -166,13 +179,13 @@ export const PROJECTS: ProjectContent[] = [
     thumbFocus: 'center 27%',
     images: [
       {
-        src: '/projects/cone-perception-1.webp',
+        src: shot('cone-perception-1'),
         alt: 'Phone frame of blue and yellow cones in a hallway, each boxed with its estimated distance in meters',
         width: 720,
         height: 1280,
       },
       {
-        src: '/projects/cone-perception-2.webp',
+        src: shot('cone-perception-2'),
         alt: 'Histograms of keypoint label offsets from the cone edge, real labels against synthetic ground truth, by class and by source',
         width: 1280,
         height: 336,
@@ -196,13 +209,13 @@ export const PROJECTS: ProjectContent[] = [
     repo: 'https://github.com/DarkEden-coding/Slop-Block',
     images: [
       {
-        src: '/projects/slop-block-1.webp',
+        src: shot('slop-block-1'),
         alt: 'GitHub issue where the bot added verification labels and posted a verification link',
         width: 958,
         height: 442,
       },
       {
-        src: '/projects/slop-block-2.webp',
+        src: shot('slop-block-2'),
         alt: 'Verification complete page telling the contributor their account is now trusted for the repository',
         width: 810,
         height: 556,
@@ -226,7 +239,7 @@ export const PROJECTS: ProjectContent[] = [
     repo: 'https://github.com/DarkEden-coding/Swath',
     images: [
       {
-        src: '/projects/swath-1.webp',
+        src: shot('swath-1'),
         alt: 'Swath window with a project sidebar and two terminal panes split side by side',
         width: 1280,
         height: 720,

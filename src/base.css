@@ -1,0 +1,70 @@
+/* Tokens, resets and cards shared by every page. */
+
+:root {
+  --bg: #1c1c1f;
+  --bg-deep: #161618;
+  --card: #26262a;
+  --card-glass: rgba(38, 38, 42, 0.72);
+  --card-border: rgba(255, 255, 255, 0.07);
+  --card-border-hover: rgba(255, 255, 255, 0.14);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 2px 6px rgba(0, 0, 0, 0.22), 0 18px 40px -12px rgba(0, 0, 0, 0.55);
+  --shadow-lift: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 4px 10px rgba(0, 0, 0, 0.26), 0 28px 56px -14px rgba(0, 0, 0, 0.65);
+  --radius: 18px;
+  --ink: #edece9;
+  --muted: #9a9995;
+  --soft: #b9b8b3; /* body text on panels over the voxels */
+  --faint: #6c6b68;
+  --line: rgba(255, 255, 255, 0.07);
+  --accent: #cc1417;
+  --accent-ink: #ff4044;
+  --sans: 'Geist Variable', system-ui, sans-serif;
+  --mono: 'Geist Mono Variable', ui-monospace, monospace;
+  --gut: 48px;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --hero-h: 100svh;
+  color-scheme: dark;
+}
+
+@media (max-width: 1023px) { :root { --gut: 32px; } }
+@media (max-width: 639px) { :root { --gut: 16px; --radius: 16px; } }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { background: var(--bg); scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 15px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, p, ol, ul, dl, dd, fieldset { margin: 0; }
+ol, ul { padding: 0; list-style: none; }
+fieldset { border: 0; padding: 0; min-width: 0; }
+img { display: block; }
+[hidden] { display: none !important; }
+a { color: inherit; text-decoration: none; }
+button, input { font: inherit; color: inherit; }
+.mono { font-family: var(--mono); font-feature-settings: 'tnum' 1; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 3px; border-radius: 6px; }
+
+.skip {
+  position: absolute; left: 16px; top: -60px; z-index: 20;
+  padding: 10px 14px; border-radius: 10px; background: var(--ink); color: var(--bg);
+}
+.skip:focus { top: 16px; }
+
+.wrap { width: min(100% - 2 * var(--gut), 1344px); margin-inline: auto; }
+
+/* ---------- cards ---------- */
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}

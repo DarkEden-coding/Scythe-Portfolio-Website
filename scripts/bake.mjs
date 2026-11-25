@@ -12,7 +12,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { parseArgs } from 'node:util';
-import { CHAOS, cubeUrl, GRAVITY, GRID, PRESETS } from '../src/presets.ts';
+import { CHAOS, cubePath, GRAVITY, GRID, PRESETS } from '../src/presets.ts';
 
 const HORIZONS = [5, 10, 20, 40, 60]; // pendulum seconds
 const DT = 0.01; // pendulum seconds per RK4 step
@@ -56,7 +56,7 @@ for (const n of grids) {
     const packed = `${REMOTE}/packed/${preset}-${n}.cube`;
     ssh(`cd ${REMOTE} && ./lyapunov pack --in masters/${preset}-${n}.f16 --n ${n} --plane ${HORIZONS.indexOf(CHAOS.horizon)} `
       + `--max ${CHAOS.max} --levels ${CHAOS.levels} --out /tmp/scythe-pack.raw && gzip -9 -n -c /tmp/scythe-pack.raw > packed/${preset}-${n}.cube && rm /tmp/scythe-pack.raw`);
-    execFileSync('scp', ['-q', `${host}:${packed}`, `public${cubeUrl(preset, n)}`]);
-    console.log(`  public${cubeUrl(preset, n)}  ${(Number(ssh(`stat -c %s ${packed}`)) / 1024).toFixed(0)} KB`);
+    execFileSync('scp', ['-q', `${host}:${packed}`, `public${cubePath(preset, n)}`]);
+    console.log(`  public${cubePath(preset, n)}  ${(Number(ssh(`stat -c %s ${packed}`)) / 1024).toFixed(0)} KB`);
   }
 }

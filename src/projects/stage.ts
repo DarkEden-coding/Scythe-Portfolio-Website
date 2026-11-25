@@ -5,6 +5,7 @@
 
 import { type CameraBasis, orbitBasis, type V3 } from '../cube/orbitCamera.ts';
 import { el, externalLink } from '../ui/dom.ts';
+import { pageLink } from './pageLink.ts';
 import type { ProjectContent } from './content.ts';
 import type { Station } from './stations.ts';
 
@@ -65,6 +66,10 @@ export class ProjectStage {
     this.active = index;
     if (index !== null) {
       const el = this.rigs[index].el;
+      for (const img of el.querySelectorAll<HTMLImageElement>('img[data-src]')) {
+        img.src = img.dataset.src!;
+        delete img.dataset.src;
+      }
       el.classList.add('is-active');
       el.inert = false;
     }
@@ -146,6 +151,7 @@ function buildRig(project: ProjectContent, onClose: () => void, onStep: (step: n
   close.addEventListener('click', onClose);
   const meta = [project.year, project.stars ? `${project.stars} GitHub stars` : ''].filter(Boolean).join(' · ');
   const links = el('p', 'panel__links');
+  if (project.page) links.append(pageLink(project.page, project.name, 'panel__link panel__link--page'));
   links.append(externalLink(project.repo, 'GitHub', 'panel__link'));
   if (project.live) links.append(externalLink(project.live, 'Live site', 'panel__link'));
   const steps = el('p', 'panel__steps');
@@ -172,8 +178,10 @@ function buildRig(project: ProjectContent, onClose: () => void, onStep: (step: n
     const shot = el('button', 'shot');
     shot.type = 'button';
     shot.setAttribute('aria-pressed', 'false');
+    // No src until the rig first opens (see show), so the page doesn't fetch every gallery up front.
     const img = el('img', '');
-    Object.assign(img, { src: image.src, alt: image.alt, width: image.width, height: image.height, loading: 'lazy', draggable: false });
+    Object.assign(img, { alt: image.alt, width: image.width, height: image.height, decoding: 'async', draggable: false });
+    img.dataset.src = image.src;
     shot.append(img, cardBack());
     shot.addEventListener('click', () => zoomShot(rig, shot.classList.contains('is-zoomed') ? null : shot));
     shots.append(shot);

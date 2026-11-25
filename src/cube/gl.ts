@@ -1,4 +1,4 @@
-// Small WebGL2 helpers: compile/link with readable errors and collect uniform locations.
+// Small WebGL2 helpers: compile/link with readable errors, collect uniform locations, spot a software renderer.
 
 export interface Program {
   program: WebGLProgram;
@@ -32,4 +32,11 @@ export function createProgram(gl: WebGL2RenderingContext, vs: string, fs: string
 export function hexToRgb(hex: string): [number, number, number] {
   const v = parseInt(hex.slice(1), 16);
   return [((v >> 16) & 255) / 255, ((v >> 8) & 255) / 255, (v & 255) / 255];
+}
+
+/** Whether WebGL is running on the CPU (no usable GPU, or one the browser blocked). */
+export function isSoftwareRenderer(gl: WebGL2RenderingContext): boolean {
+  const info = gl.getExtension('WEBGL_debug_renderer_info');
+  const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
+  return /swiftshader|llvmpipe|softpipe|basic render|software/i.test(renderer);
 }

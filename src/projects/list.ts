@@ -2,6 +2,7 @@
 // a tab to find first. Each card can also fly the cube to that project's station.
 
 import { el, externalLink } from '../ui/dom.ts';
+import { pageLink } from './pageLink.ts';
 import type { ProjectContent } from './content.ts';
 
 /** Fills root with one card per project. `onView` gets the project's index when its "See it in
@@ -34,6 +35,7 @@ export function buildProjectList(root: HTMLElement, projects: ProjectContent[], 
     for (const item of project.stack) stack.append(el('li', '', item));
 
     const actions = el('div', 'work-card__actions');
+    if (project.page) actions.append(pageLink(project.page, project.name, 'pill pill--page'));
     actions.append(externalLink(project.repo, 'GitHub', 'pill'));
     if (project.live) actions.append(externalLink(project.live, 'Live site', 'pill'));
     if (onView) {

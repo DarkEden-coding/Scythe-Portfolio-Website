@@ -27,4 +27,21 @@ export const GRID: Record<Quality, number> = { low: 64, medium: 112, high: 160, 
 // about a third smaller than 256 with no visible difference.
 export const CHAOS = { horizon: 5, max: 5, levels: 64 };
 
-export const cubeUrl = (preset: number, n: number) => `/cubes/${preset}-${n}.cube`;
+// Bump when the cube files change without anything above changing (a fix to the bake itself).
+const BAKE_REVISION = 1;
+
+// Names the baked set. It's in every cube URL, so the files can be cached for a year
+// (public/_headers) and a re-bake still reaches everyone, and it names the Cache Storage copy.
+export const CUBE_VERSION = fnv1a(JSON.stringify({ CHAOS, GRAVITY, PRESETS, BAKE_REVISION }));
+
+/** Where a cube file sits under public/. */
+export const cubePath = (preset: number, n: number) => `/cubes/${preset}-${n}.cube`;
+/** The URL the site fetches it from. */
+export const cubeUrl = (preset: number, n: number) => `${cubePath(preset, n)}?v=${CUBE_VERSION}`;
+
+/** 32-bit FNV-1a of a string, as 8 hex digits. */
+function fnv1a(text: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 0x01000193);
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
