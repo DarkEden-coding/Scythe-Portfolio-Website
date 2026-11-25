@@ -9,6 +9,7 @@ import type { CameraBasis } from './orbitCamera.ts';
 import { ProbeTarget } from './probe.ts';
 import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, PROBE_EDGES_FS, RENDER_FS } from './shaders.ts';
 import { ThresholdTrail, TRAIL_SAMPLES } from './thresholdTrail.ts';
+import { ProgramVariants } from './variants.ts';
 
 export type ColorBy = 'plain' | 'neighbours' | 'chaos' | 'both';
 export type Samples = 1 | 2 | 4;
@@ -27,6 +28,9 @@ export interface ViewOptions {
 }
 
 const COLOR_BY: Record<ColorBy, number> = { plain: 0, neighbours: 1, chaos: 2, both: 3 };
+
+// RENDER_FS's uMode: 0 all rays, 1 the probe pass, 2 the refine pass.
+type RenderMode = 0 | 1 | 2;
 
 // Uploading and filtering a whole Ultra cube at once holds the GPU for about a tenth of a second, a
 // visible hitch, so a new cube goes in this many voxels per frame.
@@ -83,7 +87,7 @@ export class CubeView {
   private passHook: ((pass: Pass | null) => void) | null = null;
   private filter: Program;
   private brickPass: Program;
-  private render: Program;
+  private render: ProgramVariants;
   private edges: Program;
   private probeEdges: Program;
   private volume: Volume | null = null; // the cube on screen
@@ -112,13 +116,19 @@ export class CubeView {
     this.trail = new ThresholdTrail(opts.glowFor, this.threshold);
     this.filter = createProgram(gl, FULLSCREEN_VS, FILTER_FS);
     this.brickPass = createProgram(gl, FULLSCREEN_VS, BRICKS_FS);
-    this.render = createProgram(gl, FULLSCREEN_VS, RENDER_FS);
+    this.render = new ProgramVariants(gl, FULLSCREEN_VS, RENDER_FS);
     this.edges = createProgram(gl, EDGES_VS, EDGES_FS);
     this.probeEdges = createProgram(gl, FULLSCREEN_VS, PROBE_EDGES_FS);
     this.filterTarget = gl.createFramebuffer();
     this.accumulator = new Accumulator(gl);
     this.probe = new ProbeTarget(gl);
     gl.bindVertexArray(gl.createVertexArray());
+  }
+
+  /** Compile the ray-cast's variants when first needed, holding that frame up (see variants.ts).
+   * For the benchmark, whose frames must all come out the same. */
+  set waitForShaders(wait: boolean) {
+    this.render.waitForCompile = wait;
   }
 
   /** For profiling (bench/): called as each pass of a draw starts, and with null after the last. */
@@ -201,45 +211,13 @@ export class CubeView {
         gl.viewport(0, 0, pixelWidth, pixelHeight);
         gl.enable(gl.BLEND);
       }
-      const u = this.render.uniforms;
-      gl.useProgram(this.render.program);
-      this.setCamera(this.render, camera, pixelWidth, pixelHeight, shift, focal);
       gl.activeTexture(gl.TEXTURE0);
       gl.bindTexture(gl.TEXTURE_3D, volume.chaos);
       gl.activeTexture(gl.TEXTURE1);
       gl.bindTexture(gl.TEXTURE_3D, volume.filtered);
       gl.activeTexture(gl.TEXTURE2);
       gl.bindTexture(gl.TEXTURE_3D, volume.bricks);
-      gl.uniform1i(u.uChaos, 0);
-      gl.uniform1i(u.uPass, 1);
-      gl.uniform1i(u.uBricks, 2);
-      gl.uniform1i(u.uProbeColor, 3);
-      gl.uniform1i(u.uProbeDepth, 4);
-      gl.uniform1f(u.uLevels, CHAOS.levels - 1);
-      gl.uniform1i(u.uN, n);
-      gl.uniform3fv(u.uOffset, this.offset.map(o => ((o % n) + n) % n));
-      gl.uniform1f(u.uThreshold, this.threshold);
-      this.trail.sample(this.trailPoints);
-      gl.uniform1fv(u['uTrail[0]'], this.trailPoints);
-      gl.uniform1i(u.uGlow, this.opts.glow ? 1 : 0);
-      gl.uniform1f(u.uPixelAngle, 2 / (pixelHeight * focal));
-      gl.uniform3fv(u.uBase, hexToRgb(this.opts.base));
-      gl.uniform3fv(u.uAccent, hexToRgb(this.opts.accent));
-      gl.uniform1i(u.uColorBy, COLOR_BY[this.opts.colorBy]);
-      gl.uniform3fv(u['uRamp[0]'], this.opts.ramp.flatMap(hexToRgb));
-      gl.uniform1i(u.uSun, this.opts.sun ? 1 : 0);
-      gl.uniform1i(u.uSamples, this.samples);
-      // With several rays, each already has its own part of the pixel; the jitter moves them about
-      // within it.
-      const jitter = temporal ? this.accumulator.jitter.map(j => (this.samples > 1 ? j / 2 : j)) : [0, 0];
-      gl.uniform2fv(u.uJitter, jitter);
-      gl.uniform1i(u.uSunFrame, temporal ? this.accumulator.frameIndex : 0);
-      gl.uniform4fv(u.uCarve, this.carve);
-      // The sun keeps its place relative to the viewer (high, upper left, behind them), so orbiting
-      // looks like the cube turning under a fixed sun.
-      const sun = camera.right.map((r, i) => -0.5 * r + 0.85 * (i === 1 ? 1 : 0) - 0.45 * camera.forward[i]);
-      const len = Math.hypot(...sun);
-      gl.uniform3f(u.uSunDir, sun[0] / len, sun[1] / len, sun[2] / len);
+      const useRender = (mode: RenderMode): void => this.useRender(mode, n, camera, pixelWidth, pixelHeight, shift, focal, temporal);
 
       // How wide a voxel at the cube's centre is on screen, in pixels.
       const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
@@ -248,7 +226,7 @@ export class CubeView {
       if (twoPass) {
         this.probe.begin(pixelWidth, pixelHeight, 3);
         gl.disable(gl.BLEND);
-        gl.uniform1i(u.uMode, 1);
+        useRender(1);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       }
       if (temporal) {
@@ -264,10 +242,10 @@ export class CubeView {
       if (twoPass) {
         this.passHook?.('refine');
         this.probe.bindTextures(3);
-        this.refineEdges();
+        this.refineEdges(() => useRender(2));
       }
       else {
-        gl.uniform1i(u.uMode, 0);
+        useRender(0);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       }
       if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n), this.settled);
@@ -281,7 +259,7 @@ export class CubeView {
   /** After the probe pass, into the bound target: marks the probe's edges in the stencil, copies its
    * colour everywhere else, and casts the refine pass's rays at the marks (see RENDER_FS main).
    * Leaves the render program in use. */
-  private refineEdges(): void {
+  private refineEdges(useRender: () => void): void {
     const { gl } = this;
     const e = this.probeEdges.uniforms;
     gl.enable(gl.STENCIL_TEST);
@@ -305,11 +283,53 @@ export class CubeView {
     gl.stencilFunc(gl.NOTEQUAL, 1, 0xff);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-    gl.useProgram(this.render.program);
-    gl.uniform1i(this.render.uniforms.uMode, 2);
+    useRender();
     gl.stencilFunc(gl.EQUAL, 1, 0xff);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.disable(gl.STENCIL_TEST);
+  }
+
+  /** Puts the ray-cast program for a pass in use, with every uniform set (see RENDER_FS and renderProgram). */
+  private useRender(mode: RenderMode, n: number, camera: CameraBasis, pixelWidth: number, pixelHeight: number, shift: [number, number], focal: number, temporal: boolean): void {
+    const { gl } = this;
+    const render = this.render.get({
+      uMode: mode, uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
+      uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
+    });
+    const u = render.uniforms;
+    gl.useProgram(render.program);
+    this.setCamera(render, camera, pixelWidth, pixelHeight, shift, focal);
+    gl.uniform1i(u.uChaos, 0);
+    gl.uniform1i(u.uPass, 1);
+    gl.uniform1i(u.uBricks, 2);
+    gl.uniform1i(u.uProbeColor, 3);
+    gl.uniform1i(u.uProbeDepth, 4);
+    gl.uniform1f(u.uLevels, CHAOS.levels - 1);
+    gl.uniform1i(u.uN, n);
+    gl.uniform3fv(u.uOffset, this.offset.map(o => ((o % n) + n) % n));
+    gl.uniform1f(u.uThreshold, this.threshold);
+    this.trail.sample(this.trailPoints);
+    gl.uniform1fv(u['uTrail[0]'], this.trailPoints);
+    gl.uniform1i(u.uGlow, this.opts.glow ? 1 : 0);
+    gl.uniform1f(u.uPixelAngle, 2 / (pixelHeight * focal));
+    gl.uniform3fv(u.uBase, hexToRgb(this.opts.base));
+    gl.uniform3fv(u.uAccent, hexToRgb(this.opts.accent));
+    gl.uniform1i(u.uColorBy, COLOR_BY[this.opts.colorBy]);
+    gl.uniform3fv(u['uRamp[0]'], this.opts.ramp.flatMap(hexToRgb));
+    gl.uniform1i(u.uSun, this.opts.sun ? 1 : 0);
+    gl.uniform1i(u.uSamples, this.samples);
+    // With several rays, each already has its own part of the pixel; the jitter moves them about
+    // within it.
+    const jitter = temporal ? this.accumulator.jitter.map(j => (this.samples > 1 ? j / 2 : j)) : [0, 0];
+    gl.uniform2fv(u.uJitter, jitter);
+    gl.uniform1i(u.uSunFrame, temporal ? this.accumulator.frameIndex : 0);
+    gl.uniform4fv(u.uCarve, this.carve);
+    // The sun keeps its place relative to the viewer (high, upper left, behind them), so orbiting
+    // looks like the cube turning under a fixed sun.
+    const sun = camera.right.map((r, i) => -0.5 * r + 0.85 * (i === 1 ? 1 : 0) - 0.45 * camera.forward[i]);
+    const len = Math.hypot(...sun);
+    gl.uniform3f(u.uSunDir, sun[0] / len, sun[1] / len, sun[2] / len);
+    gl.uniform1i(u.uMode, mode);
   }
 
   /** How far the voxels moved since the last call, in world units: the volume moving through the

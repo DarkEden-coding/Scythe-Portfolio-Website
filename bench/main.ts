@@ -26,6 +26,7 @@ const canvas = document.querySelector<HTMLCanvasElement>('#cube')!;
 const view = CubeView.create(canvas, viewOptions('both', 'glacier', true));
 if (!view) throw new Error('No WebGL2');
 const { gl } = view;
+view.waitForShaders = true;
 view.setFilter(FILTER_K);
 const timer = GpuTimer.create(gl);
 

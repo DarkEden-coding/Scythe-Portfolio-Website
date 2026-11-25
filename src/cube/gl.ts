@@ -6,19 +6,27 @@ export interface Program {
 }
 
 export function createProgram(gl: WebGL2RenderingContext, vs: string, fs: string): Program {
+  return finishProgram(gl, startProgram(gl, vs, fs));
+}
+
+/** Compiles and links a program without waiting for the result (see finishProgram). */
+export function startProgram(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
   const program = gl.createProgram();
   for (const [type, source] of [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]] as const) {
     const shader = gl.createShader(type)!;
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-      throw new Error(`Shader compile failed: ${gl.getShaderInfoLog(shader)}`);
-    }
     gl.attachShader(program, shader);
   }
   gl.linkProgram(program);
+  return program;
+}
+
+/** Checks a started program, waiting for it if it isn't done, and collects its uniforms. */
+export function finishProgram(gl: WebGL2RenderingContext, program: WebGLProgram): Program {
   if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error(`Program link failed: ${gl.getProgramInfoLog(program)}`);
+    const logs = gl.getAttachedShaders(program)!.map(shader => gl.getShaderInfoLog(shader)).filter(Boolean);
+    throw new Error(`Program link failed: ${[...logs, gl.getProgramInfoLog(program)].join('\n')}`);
   }
   const uniforms: Record<string, WebGLUniformLocation> = {};
   const count = gl.getProgramParameter(program, gl.ACTIVE_UNIFORMS) as number;

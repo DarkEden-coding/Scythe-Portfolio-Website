@@ -102,6 +102,7 @@ precision highp int;
 precision highp usampler3D;
 precision highp usampler2D;
 
+// The uniforms inside #ifndef can come as #defines instead, as constants (see variants.ts).
 uniform usampler3D uChaos;  // chaos level per voxel
 uniform usampler3D uPass;   // highest threshold each voxel shows at, in 256ths, order included (see FILTER_FS)
 uniform usampler3D uBricks; // highest uPass level per brick of the volume
@@ -116,20 +117,33 @@ uniform vec3 uRight;
 uniform vec3 uUp;
 uniform vec3 uForward;
 uniform float uThreshold;   // voxels below this level (plus their sub-level, see order) are hidden
+#ifndef uGlow
 uniform bool uGlow;         // whether new voxels glow
+#endif
 uniform float uTrail[${TRAIL_SAMPLES}]; // the threshold now, then evenly spaced back to when a new voxel's glow is gone (see thresholdTrail.ts)
 uniform float uPixelAngle;  // radians per pixel, to fade seams when voxels get small
 uniform vec3 uBase;
 uniform vec3 uAccent;
+#ifndef uColorBy
 uniform int uColorBy;       // 0 plain, 1 neighbour count, 2 chaos level where surrounded, 3 both
+#endif
 uniform vec3 uRamp[4];      // low → high
+#ifndef uSun
 uniform bool uSun;          // sun lighting with cast shadows, instead of the studio light
+#endif
 uniform vec3 uSunDir;       // towards the sun
+#ifndef uSamples
 uniform int uSamples;       // rays per pixel: 1, 2 or 4
+#endif
 uniform vec4 uCarve;        // a bore cut into the voxels: xyz its axis, from the centre out; w its radius in box units (0: none)
+#ifndef CARVING
+#define CARVING (uCarve.w > 0.0)
+#endif
 uniform vec2 uJitter;       // where in the pixel the ray goes when accumulating over frames (see RESOLVE_FS)
 uniform int uSunFrame;      // counts accumulated frames, so each one aims its shadow rays at new points on the sun disk
+#ifndef uMode
 uniform int uMode;          // 0: uSamples rays per pixel; 1: probe, one ray; 2: refine, uSamples more (see main)
+#endif
 uniform sampler2D uProbeColor;
 uniform sampler2D uProbeDepth;
 
@@ -162,7 +176,7 @@ float carved(ivec3 cell) {
 // How far above the threshold a voxel sits; it shows at 0 or more.
 float margin(ivec3 cell) {
   float m = float(voxel(uPass, cell, uN)) * (1.0 / 256.0) - uThreshold;
-  return uCarve.w > 0.0 ? m - carved(cell) * (uLevels + 1.0) : m;
+  return CARVING ? m - carved(cell) * (uLevels + 1.0) : m;
 }
 bool shows(ivec3 cell) { return margin(cell) >= 0.0; }
 
@@ -183,7 +197,7 @@ float age(ivec3 cell) {
 // distance from the axis changes no faster than position, so it is enough that the brick's centre
 // sits half a brick diagonal inside where the bore starts to thin.
 bool boredOut(ivec3 brick) {
-  if (uCarve.w <= 0.0) return false;
+  if (!CARVING) return false;
   float scale = 2.0 / float(uN);
   vec3 q = (vec3(brick * ${BRICK}) + ${BRICK / 2}.0 - uOffset) * scale - 1.0;
   vec3 off = q - uCarve.xyz * max(dot(q, uCarve.xyz), 0.0);
