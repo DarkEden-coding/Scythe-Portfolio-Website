@@ -93,8 +93,9 @@ function readBack(): { rgb: Uint8Array; alpha: Uint8Array } {
       const i = (from + x) * 4, o = to + x;
       const a = rgba[i + 3];
       alpha[o] = a;
-      // Premultiplied, so over the background: c + bg · (1 - a).
-      for (let c = 0; c < 3; c++) rgb[o * 3 + c] = Math.round(rgba[i + c] + (BACKGROUND[c] * (255 - a)) / 255);
+      // Premultiplied, so over the background: c + bg · (1 - a). Clamped: a colour can come out a
+      // little above its alpha, and a Uint8Array would wrap 256 round to 0.
+      for (let c = 0; c < 3; c++) rgb[o * 3 + c] = Math.min(255, Math.round(rgba[i + c] + (BACKGROUND[c] * (255 - a)) / 255));
     }
   }
   return { rgb, alpha };

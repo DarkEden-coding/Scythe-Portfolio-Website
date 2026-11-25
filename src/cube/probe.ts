@@ -1,3 +1,5 @@
+import { SCRATCH_UNIT } from './gl.ts';
+
 // The probe pass's target (see RENDER_FS): one ray per pixel's colour, first-surface distance and
 // the id of the faces it shaded, from which PROBE_EDGES_FS finds the edges.
 
@@ -39,6 +41,7 @@ export class ProbeTarget {
     const { gl } = this;
     for (const texture of this.textures) gl.deleteTexture(texture);
     if (this.framebuffer) gl.deleteFramebuffer(this.framebuffer);
+    gl.activeTexture(gl.TEXTURE0 + SCRATCH_UNIT); // not a unit the volume's textures are bound to
     this.width = w;
     this.height = h;
     this.textures = [gl.RGBA8, gl.R32F, gl.R32UI].map(format => {

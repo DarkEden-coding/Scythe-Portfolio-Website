@@ -276,8 +276,7 @@ export class CubeView {
         gl.enable(gl.BLEND);
       }
       gl.enable(gl.SCISSOR_TEST);
-      // Bound only now: a resize reallocates the accumulator's textures, binding them on whichever
-      // unit is active, which could be one of these.
+      // The probe's textures are bound only now: the probe pass draws into them.
       if (twoPass) {
         this.passHook?.('refine');
         this.probe.bindTextures(3);

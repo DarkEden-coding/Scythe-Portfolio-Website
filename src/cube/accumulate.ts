@@ -2,7 +2,7 @@
 // in the pixel, and RESOLVE_FS blends it into a reprojected history, so a few frames add up to many
 // rays per pixel for the cost of one. Needs float render targets (EXT_color_buffer_float).
 
-import { createProgram, type Program } from './gl.ts';
+import { createProgram, type Program, SCRATCH_UNIT } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { type Rect, union } from './screenRect.ts';
 import { FULLSCREEN_VS, PRESENT_FS, RESOLVE_FS } from './shaders.ts';
@@ -149,6 +149,7 @@ export class Accumulator {
   private allocate(w: number, h: number): void {
     const { gl } = this;
     this.release();
+    gl.activeTexture(gl.TEXTURE0 + SCRATCH_UNIT); // not a unit the volume's textures are bound to
     this.width = w;
     this.height = h;
     const color = texture2d(gl, gl.RGBA8, w, h, gl.NEAREST);

@@ -5,6 +5,11 @@ export interface Program {
   uniforms: Record<string, WebGLUniformLocation>;
 }
 
+/** A texture unit the renderer never samples from. Creating a texture binds it to the active unit,
+ * so code that allocates mid-frame switches to this one first, leaving the units the passes have
+ * bound alone. */
+export const SCRATCH_UNIT = 15; // fragment shaders have at least 16
+
 export function createProgram(gl: WebGL2RenderingContext, vs: string, fs: string): Program {
   return finishProgram(gl, startProgram(gl, vs, fs));
 }

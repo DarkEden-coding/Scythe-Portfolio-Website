@@ -78,5 +78,6 @@ try {
 } finally {
   await browser.close();
   await server.close();
+  rmSync(SNAPSHOTS, { recursive: true, force: true }); // or vitest would find their tests
   releaseGpu();
 }
