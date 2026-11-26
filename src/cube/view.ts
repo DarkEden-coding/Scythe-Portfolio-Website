@@ -3,12 +3,12 @@
 // all run on the GPU, so they stay live.
 
 import { CHAOS } from '../presets.ts';
-import { Accumulator } from './accumulate.ts';
+import { Accumulator, raySize } from './accumulate.ts';
 import { pictureKey, Stillness } from './freeze.ts';
 import { createProgram, hexToRgb, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { ProbeTarget } from './probe.ts';
-import { cubeRect, type Rect } from './screenRect.ts';
+import { cubeRect, type Rect, scaleRect } from './screenRect.ts';
 import { ShadowReuse } from './shadowReuse.ts';
 import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, OCCUPANCY_FS, PROBE_EDGES_FS, REACH_FS, REACH_PLANE_FS, RENDER_FS } from './shaders.ts';
 import { ThresholdTrail, TRAIL_SAMPLES } from './thresholdTrail.ts';
@@ -127,6 +127,13 @@ export class CubeView {
   accumulate = false;
   /** Whether the cube holds still (no threshold change), so accumulating can average over longer. */
   settled = true;
+  /** While accumulating a moving picture, cast the rays at this fraction of the resolution per axis
+   * and upscale them in the history (see accumulate.ts). 1 casts a ray per pixel, as frames drawn
+   * without accumulating always do. */
+  renderScale = 1;
+  /** The same for a still picture. Fewer rays a pixel leave more shadow noise in it, so keep this
+   * at 1 unless still frames are too slow too. */
+  stillScale = 1;
   /** Once a still picture has converged, stop casting rays and show it as it is (see freeze.ts).
    * The benchmark turns this off to time the rays. */
   freezeWhenStill = true;
@@ -138,6 +145,7 @@ export class CubeView {
    * several rays (dragging the paused cube), accumulating, and not in the probe/refine passes. */
   shadowReuse = true;
 
+  private rayScale = 1; // this frame's raySize scale
   private passHook: ((pass: Pass | null) => void) | null = null;
   private warmed = new WeakSet<Program>(); // variants drawn once already (see warmUp)
   private filter: Program;
@@ -263,32 +271,19 @@ export class CubeView {
     const temporal = !debug && this.accumulate && this.accumulator.supported;
     if (!temporal) this.accumulator.reset();
     this.trail.sample(this.trailPoints);
-    // With several rays, voxels at least PROBE_FROM_PX wide draw in two passes (see RENDER_FS).
     const n = this.volume?.n ?? 0;
-    const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
-    const twoPass = temporal && this.samples > 1 && voxelPx >= PROBE_FROM_PX;
     // Shadows are reused only while the picture moves: a still one casts its own, so it stays as
     // exact as without (and once it has converged it isn't drawn again; see freeze.ts).
     const pose = JSON.stringify([camera, shift, focal, this.offset, this.threshold]);
     const moving = !this.settled || pose !== this.lastPose;
     this.lastPose = pose;
-    // With one ray, a pixel casts one shadow ray, and the passes reuse adds cost about what sharing
-    // it saves (bench/ab.mjs: orbit, sweep and flight came out 3% faster to 10% slower), so only with more.
     // The pass stays a uniform: as a constant it saves little, and the compiler then treats the
     // probe and refine passes' floating point differently enough to move soft shadow edges.
     const settings = {
       uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
       uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
     };
-    // Reusing shadows takes two programs the generic one can't stand in for. They compile in the
-    // background as soon as the settings would use them, before the first drag (compiled on the spot,
-    // that frame would stall), and until both are ready pixels cast their own shadow rays, as they do
-    // everywhere variants don't compile in the background.
-    const reusable = this.shadowReuse && !debug && this.samples > 1 && temporal && this.opts.sun && !twoPass;
-    const reuseRender = reusable ? this.render.ready({ ...settings, SHADOW_REUSE: 1 }) : null;
-    const shadowPass = reusable ? this.render.ready({ uSun: true, CARVING: settings.CARVING, SHADOW_PASS: 1 }) : null;
-    const reuse = moving && reuseRender && shadowPass ? { render: reuseRender, shadowPass } : null;
-    const render = debug ? this.render.now({ ...settings, DEBUG_VIEW: debug }) : reuse ? reuse.render : this.render.get(settings);
+    const base = debug ? this.render.now({ ...settings, DEBUG_VIEW: debug }) : this.render.get(settings);
     // Variants the site will soon want compile in the background beforehand. It draws one ray while
     // the cube moves and two once it's still; compiling the other count's variant only when the
     // cube first settled cost two frames of 80-130 ms on Apple M5 (the compile competes with
@@ -297,19 +292,42 @@ export class CubeView {
     // (not to hold that one up); left to the flight, the generic program drew its first quarter
     // second. Each is drawn once as soon as it is ready (see warmUp).
     const prepared = debug ? [] : [this.render.prepare({ ...settings, uSamples: this.samples === 1 ? 2 : 1 })];
-    if (!debug && render !== this.render.generic) {
+    if (!debug && base !== this.render.generic) {
       for (const uSamples of [1, 2]) prepared.push(this.render.prepare({ ...settings, uSamples, CARVING: !settings.CARVING }));
     }
     // The passes below leave the pixels outside the cube alone (see screenRect.ts). The scissor
     // is off for the clears: the targets must be clear everywhere.
     const rect = cubeRect(camera, pixelWidth, pixelHeight, shift, focal);
-    const still = temporal && this.settled && this.freezeWhenStill;
-    const key = still ? pictureKey({
+    const key = temporal && this.settled ? pictureKey({
       camera, width: pixelWidth, height: pixelHeight, shift, focal, offset: this.offset, threshold: this.threshold,
       trail: this.trailPoints, samples: this.samples, carve: this.carve, filterK: this.filterK, options: this.opts,
-      volume: this.volumeVersion, program: render === this.render.generic ? 'generic' : 'variant',
+      volume: this.volumeVersion, program: base === this.render.generic ? 'generic' : 'variant',
     }) : '';
-    const frozen = this.stillness.frozen(key) && this.accumulator.holds(pixelWidth, pixelHeight);
+    const frozen = this.stillness.frozen(key) && this.freezeWhenStill && this.accumulator.holds(pixelWidth, pixelHeight);
+    // The rays' target, and the cube's rect in it. A still picture switches to stillScale from its
+    // second frame, the history carrying on: at 1 it ends up as sharp, and with as little shadow
+    // noise, as without upscaling (and soon freezes). The ray-cast's camera takes the target's
+    // size unrounded (see raySize).
+    const scale = this.stillness.unchanged === 0 ? this.renderScale : this.stillScale;
+    const rays = raySize(pixelWidth, pixelHeight, temporal ? scale : 1);
+    this.rayScale = rays.scale;
+    const rayRect = rays.scale < 1 ? scaleRect(rect, rays.scale, rays.width, rays.height) : rect;
+    // With several rays, voxels at least PROBE_FROM_PX wide in the rays' pixels draw in two passes
+    // (see RENDER_FS).
+    const rayWidth = pixelWidth * rays.scale, rayHeight = pixelHeight * rays.scale;
+    const voxelPx = (rayHeight * focal) / (n * Math.hypot(...camera.eye));
+    const twoPass = temporal && this.samples > 1 && voxelPx >= PROBE_FROM_PX;
+    // Reusing shadows takes two programs the generic one can't stand in for. They compile in the
+    // background as soon as the settings would use them, before the first drag (compiled on the spot,
+    // that frame would stall), and until both are ready pixels cast their own shadow rays, as they do
+    // everywhere variants don't compile in the background. With one ray, a pixel casts one shadow
+    // ray, and the passes reuse adds cost about what sharing it saves (bench/ab.mjs: orbit, sweep and
+    // flight came out 3% faster to 10% slower), so only with more.
+    const reusable = this.shadowReuse && !debug && this.samples > 1 && temporal && this.opts.sun && !twoPass;
+    const reuseRender = reusable ? this.render.ready({ ...settings, SHADOW_REUSE: 1 }) : null;
+    const shadowPass = reusable ? this.render.ready({ uSun: true, CARVING: settings.CARVING, SHADOW_PASS: 1 }) : null;
+    const reuse = moving && reuseRender && shadowPass ? { render: reuseRender, shadowPass } : null;
+    const render = reuse ? reuse.render : base;
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, pixelWidth, pixelHeight);
@@ -358,12 +376,12 @@ export class CubeView {
       gl.bindTexture(gl.TEXTURE_3D, volume.reach);
       gl.activeTexture(gl.TEXTURE7);
       gl.bindTexture(gl.TEXTURE_2D, volume.occupancy);
-      const useRender = (mode: RenderMode, program = render): void => this.useRender(program, mode, n, occupancy, camera, pixelWidth, pixelHeight, shift, focal, temporal);
+      const useRender = (mode: RenderMode, program = render): void => this.useRender(program, mode, n, occupancy, camera, rayWidth, rayHeight, shift, focal, temporal);
 
-      gl.scissor(...rect);
+      gl.scissor(...rayRect);
       this.passHook?.(twoPass ? 'probe' : 'render');
       if (twoPass) {
-        this.probe.begin(pixelWidth, pixelHeight, 3);
+        this.probe.begin(rays.width, rays.height, 3);
         gl.disable(gl.BLEND);
         useRender(1);
         gl.enable(gl.SCISSOR_TEST);
@@ -371,7 +389,7 @@ export class CubeView {
         gl.disable(gl.SCISSOR_TEST);
       }
       if (temporal) {
-        this.accumulator.begin(pixelWidth, pixelHeight);
+        this.accumulator.begin(pixelWidth, pixelHeight, rays);
         gl.disable(gl.BLEND);
       } else {
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -386,9 +404,9 @@ export class CubeView {
         this.refineEdges(() => useRender(2));
       }
       else {
-        if (temporal) this.warmUp(prepared, rect, useRender);
+        if (temporal) this.warmUp(prepared, rayRect, useRender);
         if (reuse) {
-          this.shadows.begin(pixelWidth, pixelHeight, this.accumulator.frameTextures);
+          this.shadows.begin(rays.width, rays.height, this.accumulator.frameTextures);
           gl.enable(gl.SCISSOR_TEST);
         }
         useRender(0);
@@ -396,13 +414,13 @@ export class CubeView {
         if (reuse) {
           gl.disable(gl.SCISSOR_TEST);
           this.passHook?.('shadows');
-          this.shadows.cast(() => (useRender(0, reuse.shadowPass), reuse.shadowPass), rect);
+          this.shadows.cast(() => (useRender(0, reuse.shadowPass), reuse.shadowPass), rayRect);
           this.passHook?.('combine');
-          this.shadows.combine(rect);
+          this.shadows.combine(rayRect);
         }
       }
       gl.disable(gl.SCISSOR_TEST);
-      if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n), this.settled, rect);
+      if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n), this.settled, rect, this.jitter(temporal));
     }
     gl.disable(gl.BLEND);
     this.passHook?.(null);
@@ -488,10 +506,8 @@ export class CubeView {
     gl.uniform3fv(u['uRamp[0]'], this.opts.ramp.flatMap(hexToRgb));
     gl.uniform1i(u.uSun, this.opts.sun ? 1 : 0);
     gl.uniform1i(u.uSamples, this.samples);
-    // With several rays, each already has its own part of the pixel; the jitter moves them about
-    // within it.
-    const jitter = temporal ? this.accumulator.jitter.map(j => (this.samples > 1 ? j / 2 : j)) : [0, 0];
-    gl.uniform2fv(u.uJitter, jitter);
+    gl.uniform2fv(u.uJitter, this.jitter(temporal));
+    gl.uniform1f(u.uSpread, this.rayScale);
     gl.uniform1i(u.uSunFrame, temporal ? this.accumulator.frameIndex : 0);
     gl.uniform4fv(u.uCarve, this.carve);
     gl.uniform1f(u.uHollow, boreHollowRadius(this.carve[3], this.threshold, n));
@@ -501,6 +517,16 @@ export class CubeView {
     const len = Math.hypot(...sun);
     gl.uniform3f(u.uSunDir, sun[0] / len, sun[1] / len, sun[2] / len);
     gl.uniform1i(u.uMode, mode);
+  }
+
+  /** Where in the pixel this frame's rays go, from its centre. With several rays, each already has
+   * its own part of the pixel; the jitter moves them about within it. Upscaling, the rays keep to
+   * their spread within an output pixel (uSpread), and the jitter moves them across their larger
+   * pixel, so over frames they reach every output pixel in it. */
+  private jitter(temporal: boolean): [number, number] {
+    if (!temporal) return [0, 0];
+    const [x, y] = this.accumulator.jitter;
+    return this.samples > 1 && this.rayScale === 1 ? [x / 2, y / 2] : [x, y];
   }
 
   /** Where the box starts in the tiled volume, 0..n per axis (RENDER_FS's uOffset). */

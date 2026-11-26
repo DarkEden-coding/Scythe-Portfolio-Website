@@ -434,6 +434,18 @@ type Resolution = 'auto' | '50' | '75' | '100';
 let rays: Rays = saved<Rays>('rays', { auto: true, 1: true, 2: true, 4: true }) ?? 'auto';
 let resolution: Resolution = saved<Resolution>('resolution', { auto: true, 50: true, 75: true, 100: true }) ?? 'auto';
 let renderScale = resolution === 'auto' ? 1 : Number(resolution) / 100;
+// With temporal AA on, a lower render resolution casts the rays at it and upscales them in the
+// history (temporal upscaling, see accumulate.ts), at full resolution on screen; without it, the
+// canvas itself is smaller and the browser stretches it. On Auto, a moving picture casts its rays
+// at MOVING_SCALE (bench/ab.mjs at 67%: orbit, drag, sweep and flight in 0.55-0.76 of the time, and
+// the quality gate passes; 50% failed it narrowly while orbiting), and a still one at the adapted
+// resolution, full unless frames run long. ?taau=67 pins the rays' resolution while the picture
+// moves, in %, for this visit, over the setting (handy for comparing); still pictures then get a
+// ray per pixel, for their shadow noise. A picked resolution is for still pictures too, as on a
+// weak GPU they are slow as well.
+const MOVING_SCALE = 0.67;
+const queryTaau = Number(query.get('taau'));
+const taauScale = query.has('taau') && queryTaau >= 25 && queryTaau <= 100 ? queryTaau / 100 : null;
 // Several rays per pixel stop pixel-sized voxels flashing as the volume drifts, but each costs
 // another full trace. Only the finished (or paused) cube gets them: while the threshold sweeps,
 // voxels change every frame anyway, and few showing makes rays long.
@@ -512,8 +524,9 @@ function adapt(dt: number): void {
   // Below 15 fps it can't be the GPU clocking up: step down after one window, not two.
   if (++frameStats.slowWindows < 2 && median <= 1 / 15) return;
   frameStats.slowWindows = 0;
-  if (resolution === 'auto' && renderScale > 0.6) {
-    renderScale -= 0.15;
+  // 75%, then 50%: with temporal upscaling the history keeps most of the sharpness.
+  if (resolution === 'auto' && taauScale === null && renderScale > 0.5) {
+    renderScale = renderScale > 0.75 ? 0.75 : 0.5;
   } else if (!userPickedQuality && quality !== 'low') {
     const order: Quality[] = ['low', 'medium', 'high', 'ultra'];
     const lower = order[order.indexOf(quality) - 1];
@@ -525,14 +538,19 @@ function adapt(dt: number): void {
 
 function draw(): void {
   if (!view) return;
-  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR) * renderScale;
+  const upscale = temporal();
+  const scale = taauScale ?? renderScale;
+  const moving = taauScale ?? (resolution === 'auto' ? Math.min(MOVING_SCALE, renderScale) : renderScale);
+  const dpr = Math.min(window.devicePixelRatio || 1, MAX_DPR) * (upscale ? 1 : scale);
   const w = Math.round(canvas.clientWidth * dpr), h = Math.round(canvas.clientHeight * dpr);
   if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
   const { shift, focal } = layout(w, h);
   view.threshold = threshold;
   const still = (paused || phase.name === 'hold') && !flight;
   view.samples = still ? samplesCap : 1;
-  view.accumulate = temporal();
+  view.accumulate = upscale;
+  view.renderScale = upscale ? moving : 1;
+  view.stillScale = upscale && taauScale === null ? renderScale : 1;
   view.settled = still;
   view.offset = move.map(m => m * view.size) as typeof move;
   view.carve = [...boreAxis, BORE * tour];

@@ -56,7 +56,7 @@ const median = list => [...list].sort((x, y) => x - y)[Math.floor(list.length / 
 const scenes = args.scenes?.split(',') ?? (args.quick ? QUICK : null);
 const results = { a: describe(args.a), b: describe(args.b), date: new Date().toISOString(), rounds: Number(args.rounds), frames: Number(args.frames), scenes: {} };
 try {
-  const page = await openPage(browser, `${server.resolvedUrls.local[0].replace(/\/$/, '')}/bench/ab.html?${[...['wall', 'generic'].filter(f => process.env[`CUBE_BENCH_${f.toUpperCase()}`]), ...(process.env.CUBE_BENCH_SHADOWS ? [`shadows=${process.env.CUBE_BENCH_SHADOWS}`] : [])].join('&')}`);
+  const page = await openPage(browser, `${server.resolvedUrls.local[0].replace(/\/$/, '')}/bench/ab.html?${[...['wall', 'generic'].filter(f => process.env[`CUBE_BENCH_${f.toUpperCase()}`]), ...(process.env.CUBE_BENCH_SHADOWS ? [`shadows=${process.env.CUBE_BENCH_SHADOWS}`] : []), ...(process.env.CUBE_BENCH_SCALE ? [`scale=${process.env.CUBE_BENCH_SCALE}`] : []), ...(process.env.CUBE_BENCH_STILL_SCALE ? [`stillscale=${process.env.CUBE_BENCH_STILL_SCALE}`] : [])].join('&')}`);
   await page.waitForFunction(() => 'ab' in window, { timeout: 60_000 });
   const ids = scenes ?? await page.evaluate(() => window.ab.scenes());
   results.renderer = await page.evaluate(() => window.ab.renderer());

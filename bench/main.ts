@@ -44,6 +44,8 @@ view.setFilter(FILTER_K);
 // CUBE_BENCH_SHADOWS=reuse|off overrides the default of reused shadows while dragging.
 const shadows = new URLSearchParams(location.search).get('shadows');
 if (shadows) view.shadowReuse = shadows === 'reuse';
+// ?scale=0.5 (CUBE_BENCH_SCALE): cast the rays at that fraction of the resolution and upscale.
+view.renderScale = Number(new URLSearchParams(location.search).get('scale') ?? 1);
 const timer = GpuTimer.create(gl);
 
 const cubes = new Map<string, Promise<Uint8Array>>();

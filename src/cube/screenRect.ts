@@ -36,3 +36,10 @@ export function union(a: Rect, b: Rect): Rect {
   const left = Math.min(a[0], b[0]), bottom = Math.min(a[1], b[1]);
   return [left, bottom, Math.max(a[0] + a[2], b[0] + b[2]) - left, Math.max(a[1] + a[3], b[1] + b[3]) - bottom];
 }
+
+/** A rect on a canvas scaled by `scale` per axis, to whole pixels covering it, within w × h. */
+export function scaleRect(r: Rect, scale: number, w: number, h: number): Rect {
+  const left = Math.floor(r[0] * scale), bottom = Math.floor(r[1] * scale);
+  const right = Math.min(w, Math.ceil((r[0] + r[2]) * scale)), top = Math.min(h, Math.ceil((r[1] + r[3]) * scale));
+  return [left, bottom, Math.max(0, right - left), Math.max(0, top - bottom)];
+}

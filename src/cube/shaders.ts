@@ -315,6 +315,7 @@ uniform float uHollow;      // how far from the bore's axis, in cells, no cell s
 #define CARVING (uCarve.w > 0.0)
 #endif
 uniform vec2 uJitter;       // where in the pixel the ray goes when accumulating over frames (see RESOLVE_FS)
+uniform float uSpread;      // the rays' offsets within the pixel (SAMPLES) scale by this: below 1 when upscaling
 uniform int uSunFrame;      // counts accumulated frames, so each one aims its shadow rays at new points on the sun disk
 #ifndef uMode
 uniform int uMode;          // 0: uSamples rays per pixel; 1: probe, one ray; 2: refine, uSamples more (see main)
@@ -1132,7 +1133,7 @@ void main() {
   vec3 sunlit = vec3(0.0); // the sunlit part of the shadow ray's rays so far (see shadeSunlit)
   for (int i = 0; i < rays; i++) {
     if (rays < 4 || i % 2 == 0) sunPoint = diskPoint(first + aimed++, turn);
-    vec2 offset = uMode == 1 ? vec2(0.0) : SAMPLES[rays - 1 + i];
+    vec2 offset = uMode == 1 ? vec2(0.0) : SAMPLES[rays - 1 + i] * uSpread;
     sum += trace(gl_FragCoord.xy + uJitter + offset, sunPoint);
     if (i == 0 && uMode != 2) {
       fragDepth = firstDepth;
@@ -1241,7 +1242,15 @@ uniform vec2 uPrevShift;
 uniform float uPrevFocal;
 uniform vec3 uPrevEye, uPrevRight, uPrevUp, uPrevForward;
 uniform vec3 uMotion;        // how far the voxels moved since the last frame (the volume drifting), in world units
-out vec4 fragColor;
+#ifdef UPSCALE
+uniform vec2 uInternal;      // the rays' target size, in its pixels (uCurrent, uDepth)
+uniform float uScale;        // its pixels per output pixel, below 1
+uniform vec2 uJitter;        // where in their pixels this frame's rays went, from the centre
+uniform sampler2D uHistoryWeight; // how many rays' worth the history holds, per pixel
+uniform bool uWeighed;       // whether uHistoryWeight is up to date: not after frames without upscaling
+layout(location = 1) out float fragWeight;
+#endif
+layout(location = 0) out vec4 fragColor;
 
 // Catmull-Rom over the 4×4 texels around uv, in 5 bilinear reads (the corners are left out; they
 // weigh almost nothing). After "Filmic SMAA" (Jimenez, 2016).
@@ -1277,6 +1286,7 @@ vec4 fromYCoCg(vec4 c) {
   return vec4(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z, c.a);
 }
 
+#ifndef UPSCALE
 void main() {
   ivec2 px = ivec2(gl_FragCoord.xy);
   ivec2 last = ivec2(uResolution) - 1;
@@ -1314,7 +1324,74 @@ void main() {
   float wCur = blend / (1.0 + toYCoCg(cur).x);
   float wHistory = (1.0 - blend) / (1.0 + toYCoCg(history).x);
   fragColor = (cur * wCur + history * wHistory) / (wCur + wHistory);
-}`;
+}
+#else
+// Upscaling (TAAU): the rays were cast at uScale of this resolution, so an output pixel takes the
+// ray that landed nearest it this frame, weighted down by how far from its centre that ray went.
+// The jitter moves the rays about from frame to frame, so over a few frames every output pixel gets
+// rays close to its centre, and the history adds them up at full resolution.
+//
+// A pixel can go several frames without a close ray, so a fixed blend would leave its history
+// short of rays; instead the history keeps, per pixel, how many rays' worth it holds (fragWeight),
+// and a ray's share is its weight over that plus its own. Capped, as the fixed blend is, at
+// 1 / MOVING_BLEND rays' worth moving (still, see below).
+//
+// How much a ray counts with its distance from the pixel centre, in output pixels: a Gaussian with
+// a standard deviation of half a pixel. Narrower keeps more detail but leaves pixels waiting longer
+// for a close ray.
+const float RAY_FALLOFF = 2.0;
+// What this frame's rays interpolated to the pixel's centre count for where there is no history.
+const float UPSAMPLED_WEIGHT = 0.25;
+
+void main() {
+  vec2 q = gl_FragCoord.xy * uScale; // this pixel's centre, in the rays' pixels
+  ivec2 last = ivec2(uInternal) - 1;
+  ivec2 near = clamp(ivec2(floor(q - uJitter)), ivec2(0), last); // the ray nearest it
+  vec2 off = (q - (vec2(near) + 0.5 + uJitter)) / uScale;          // from that ray, in output pixels
+  float closeness = exp(-RAY_FALLOFF * dot(off, off));
+  vec4 cur = texelFetch(uCurrent, near, 0);
+  vec4 sum = vec4(0.0), sumSq = vec4(0.0);
+  for (int dy = -1; dy <= 1; dy++)
+    for (int dx = -1; dx <= 1; dx++) {
+      vec4 c = toYCoCg(texelFetch(uCurrent, clamp(near + ivec2(dx, dy), ivec2(0), last), 0));
+      sum += c;
+      sumSq += c * c;
+    }
+  vec4 mean = sum / 9.0;
+  vec4 spread = sqrt(max(sumSq / 9.0 - mean * mean, 0.0)) * SPREAD;
+
+  // As without upscaling, through the nearest ray's surface.
+  float depth = texelFetch(uDepth, near, 0).r;
+  vec2 uv = (gl_FragCoord.xy * 2.0 - uResolution) / uResolution.y - uShift;
+  vec3 rd = normalize(uForward * uFocal + uRight * uv.x + uUp * uv.y);
+  vec3 world = uEye + rd * (depth > 0.0 ? depth : length(uEye));
+  vec3 d = world - uMotion - uPrevEye;
+  float z = dot(d, uPrevForward);
+  vec2 prevUv = vec2(dot(d, uPrevRight), dot(d, uPrevUp)) * uPrevFocal / z + uPrevShift;
+  vec2 prev = (prevUv * uResolution.y + uResolution) * 0.5 / uResolution;
+  vec4 history;
+  float held; // rays' worth in the history
+  if (uBlend >= 1.0 || z <= 0.0 || any(lessThan(prev, vec2(0.0))) || any(greaterThan(prev, vec2(1.0)))) {
+    history = catmullRom(uCurrent, (q - uJitter) / uInternal, uInternal);
+    held = UPSAMPLED_WEIGHT;
+  } else {
+    history = fromYCoCg(clamp(toYCoCg(catmullRom(uHistory, prev, uResolution)), mean - spread, mean + spread));
+    float moved = length((prev - gl_FragCoord.xy / uResolution) * uResolution); // in pixels
+    // Each pixel gets about uScale² as many rays a frame as without upscaling, so a still one
+    // keeps that many times more frames to hold as many rays, and as little shadow noise.
+    float still = 1.0 / (STILL_BLEND * uScale * uScale);
+    float most = uSettled ? mix(still, 1.0 / MOVING_BLEND, smoothstep(0.0, 1.0, moved)) : 1.0 / MOVING_BLEND;
+    // After frames without upscaling the history has as many as it can hold.
+    held = uWeighed ? min(texture(uHistoryWeight, prev).r, most - 1.0) : most - 1.0;
+  }
+  float blend = closeness / (held + closeness);
+  float wCur = blend / (1.0 + toYCoCg(cur).x);
+  float wHistory = (1.0 - blend) / (1.0 + toYCoCg(history).x);
+  fragColor = (cur * wCur + history * wHistory) / (wCur + wHistory);
+  fragWeight = held + closeness;
+}
+#endif
+`;
 
 // With the probe's image: marks its edges (uMark; the stencil test writes the mark) or copies its
 // colour and first-surface distance (see RENDER_FS main).

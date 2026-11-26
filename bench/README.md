@@ -65,6 +65,10 @@ CUBE_BENCH_ANGLE=swiftshader CUBE_BENCH_WALL=1 node bench/ab.mjs --a main --scen
   queries. Use it for SwiftShader, whose timer queries may not cover all of its work.
 - `CUBE_BENCH_SHADOWS=reuse` or `=off` turns reused shadows (`CubeView.shadowReuse`, on by default
   since they were adopted) on or off where the version has them. `run.mjs` takes it too.
+- `CUBE_BENCH_SCALE` (e.g. `0.67`, the site's while moving) sets the view's `renderScale` where it
+  has one: moving pictures cast their rays at that scale and upscale them (temporal upscaling).
+  Without it the bench casts a ray per pixel, the view's default. `run.mjs` takes it too.
+  `CUBE_BENCH_STILL_SCALE` sets `stillScale`, the same for still pictures (`ab.mjs` only).
 - `CUBE_BENCH_GENERIC` draws the generic ray-cast program throughout, never a variant. That's what
   the site does without `KHR_parallel_shader_compile`, which SwiftShader lacks.
 

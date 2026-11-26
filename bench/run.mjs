@@ -50,7 +50,8 @@ const browser = await launchBrowser();
 
 const started = Date.now();
 try {
-  const page = await openPage(browser, `${baseUrl}/bench/index.html${process.env.CUBE_BENCH_SHADOWS ? `?shadows=${process.env.CUBE_BENCH_SHADOWS}` : ''}`);
+  const params = [process.env.CUBE_BENCH_SHADOWS && `shadows=${process.env.CUBE_BENCH_SHADOWS}`, process.env.CUBE_BENCH_SCALE && `scale=${process.env.CUBE_BENCH_SCALE}`].filter(Boolean);
+  const page = await openPage(browser, `${baseUrl}/bench/index.html${params.length ? `?${params.join('&')}` : ''}`);
   await page.waitForFunction(() => 'bench' in window);
   const info = await page.evaluate(() => window.bench.info());
   console.log(`${info.renderer}; GPU timer queries ${info.timerQuery ? 'on' : 'off'}`);

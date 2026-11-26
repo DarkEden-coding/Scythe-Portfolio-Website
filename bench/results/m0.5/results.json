@@ -1,0 +1,813 @@
+{
+  "label": "m0.5",
+  "commit": "5647056",
+  "dirty": true,
+  "date": "2026-11-26T04:51:33.215Z",
+  "renderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M5, Unspecified Version)",
+  "timerQuery": true,
+  "browserArgs": [
+    "--use-angle=metal",
+    "--enable-gpu",
+    "--ignore-gpu-blocklist",
+    "--disable-gpu-vsync",
+    "--disable-frame-rate-limit",
+    "--disable-background-timer-throttling",
+    "--disable-renderer-backgrounding",
+    "--disable-backgrounding-occluded-windows",
+    "--no-first-run",
+    "--no-default-browser-check"
+  ],
+  "scenes": {
+    "home-ultra-hi": {
+      "kind": "still",
+      "size": {
+        "width": 2520,
+        "height": 1575
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 5.603,
+          "p90": 8.062,
+          "mean": 6.191,
+          "min": 4.729
+        },
+        "wall": {
+          "median": 6,
+          "p90": 8.5,
+          "mean": 6.582,
+          "min": 5.1
+        },
+        "passes": {
+          "edges": 0.30000007152557373,
+          "render": 6.200000047683716,
+          "resolve": 0.7000000476837158,
+          "present": 0.3999999761581421
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 523171,
+        "noiseMean": 0.6264779549537168,
+        "noiseP99": 4.88,
+        "flickerPct": 0.010389938061770024
+      },
+      "images": [
+        "home-ultra-hi.single-s1.png",
+        "home-ultra-hi.single-s2.png",
+        "home-ultra-hi.converged.png"
+      ]
+    },
+    "home-ultra-lo": {
+      "kind": "still",
+      "size": {
+        "width": 1280,
+        "height": 720
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 1.983,
+          "p90": 3.291,
+          "mean": 2.177,
+          "min": 1.38
+        },
+        "wall": {
+          "median": 2.4,
+          "p90": 3.7,
+          "mean": 2.57,
+          "min": 1.7
+        },
+        "passes": {
+          "edges": 0.30000007152557373,
+          "render": 1.899999976158142,
+          "resolve": 0.3999999761581421,
+          "present": 0.30000007152557373
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 111939,
+        "noiseMean": 0.8984879418437808,
+        "noiseP99": 6.12,
+        "flickerPct": 0.015888755738137993
+      },
+      "images": [
+        "home-ultra-lo.single-s1.png",
+        "home-ultra-lo.single-s2.png",
+        "home-ultra-lo.converged.png"
+      ]
+    },
+    "home-high-hi": {
+      "kind": "still",
+      "size": {
+        "width": 2520,
+        "height": 1575
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 3.856,
+          "p90": 6.195,
+          "mean": 4.389,
+          "min": 3.435
+        },
+        "wall": {
+          "median": 4.2,
+          "p90": 6.5,
+          "mean": 4.758,
+          "min": 3.8
+        },
+        "passes": {
+          "edges": 0.2999999523162842,
+          "render": 3.8000000715255737,
+          "resolve": 0.6000000238418579,
+          "present": 0.3999999761581421
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 513917,
+        "noiseMean": 0.4344350863225405,
+        "noiseP99": 3.79,
+        "flickerPct": 0.00643516921437286
+      },
+      "images": [
+        "home-high-hi.single-s1.png",
+        "home-high-hi.single-s2.png",
+        "home-high-hi.converged.png"
+      ]
+    },
+    "home-high-lo": {
+      "kind": "still",
+      "size": {
+        "width": 1280,
+        "height": 720
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 1.12,
+          "p90": 2.087,
+          "mean": 1.265,
+          "min": 0.927
+        },
+        "wall": {
+          "median": 1.5,
+          "p90": 2.4,
+          "mean": 1.65,
+          "min": 1.2
+        },
+        "passes": {
+          "edges": 0.2999999523162842,
+          "render": 1.399999976158142,
+          "resolve": 0.3999999761581421,
+          "present": 0.2999999523162842
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 110086,
+        "noiseMean": 0.6836172657865902,
+        "noiseP99": 5.21,
+        "flickerPct": 0.014079901168177606
+      },
+      "images": [
+        "home-high-lo.single-s1.png",
+        "home-high-lo.single-s2.png",
+        "home-high-lo.converged.png"
+      ]
+    },
+    "studio-ultra-hi": {
+      "kind": "still",
+      "size": {
+        "width": 2520,
+        "height": 1575
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 4.484,
+          "p90": 7.285,
+          "mean": 4.92,
+          "min": 3.519
+        },
+        "wall": {
+          "median": 4.8,
+          "p90": 7.5,
+          "mean": 5.308,
+          "min": 3.8
+        },
+        "passes": {
+          "edges": 0.3999999761581421,
+          "render": 4.899999976158142,
+          "resolve": 0.7999999523162842,
+          "present": 0.40000009536743164
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 523172,
+        "noiseMean": 0.5269457277036231,
+        "noiseP99": 3.33,
+        "flickerPct": 0.0013789510360427764
+      },
+      "images": [
+        "studio-ultra-hi.single-s1.png",
+        "studio-ultra-hi.single-s2.png",
+        "studio-ultra-hi.converged.png"
+      ]
+    },
+    "studio-ultra-lo": {
+      "kind": "still",
+      "size": {
+        "width": 1280,
+        "height": 720
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 1.146,
+          "p90": 1.76,
+          "mean": 1.254,
+          "min": 0.971
+        },
+        "wall": {
+          "median": 1.5,
+          "p90": 2,
+          "mean": 1.623,
+          "min": 1.1
+        },
+        "passes": {
+          "edges": 0.2999999523162842,
+          "render": 1.399999976158142,
+          "resolve": 0.3999999761581421,
+          "present": 0.30000007152557373
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 111937,
+        "noiseMean": 0.8155523857620032,
+        "noiseP99": 4.47,
+        "flickerPct": 0.0020419649318047526
+      },
+      "images": [
+        "studio-ultra-lo.single-s1.png",
+        "studio-ultra-lo.single-s2.png",
+        "studio-ultra-lo.converged.png"
+      ]
+    },
+    "station-ultra-hi": {
+      "kind": "still",
+      "size": {
+        "width": 2520,
+        "height": 1575
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 24.694,
+          "p90": 27.365,
+          "mean": 24.734,
+          "min": 20.152
+        },
+        "wall": {
+          "median": 25.1,
+          "p90": 27.7,
+          "mean": 25.153,
+          "min": 20.6
+        },
+        "passes": {
+          "edges": 0.30000007152557373,
+          "render": 23.5,
+          "resolve": 1.5,
+          "present": 0.6000000238418579
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 2512314,
+        "noiseMean": 0.2829678968224175,
+        "noiseP99": 2.74,
+        "flickerPct": 0.0007278435054580871
+      },
+      "images": [
+        "station-ultra-hi.single-s1.png",
+        "station-ultra-hi.single-s2.png",
+        "station-ultra-hi.converged.png"
+      ]
+    },
+    "station-ultra-lo": {
+      "kind": "still",
+      "size": {
+        "width": 1280,
+        "height": 720
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 6.408,
+          "p90": 9.389,
+          "mean": 6.788,
+          "min": 4.29
+        },
+        "wall": {
+          "median": 7,
+          "p90": 10.1,
+          "mean": 7.408,
+          "min": 4.9
+        },
+        "passes": {
+          "edges": 0.5,
+          "render": 7.5,
+          "resolve": 0.8999999761581421,
+          "present": 0.6000000238418579
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 529099,
+        "noiseMean": 0.43315688394228585,
+        "noiseP99": 3.62,
+        "flickerPct": 0.0018900054621157855
+      },
+      "images": [
+        "station-ultra-lo.single-s1.png",
+        "station-ultra-lo.single-s2.png",
+        "station-ultra-lo.converged.png"
+      ]
+    },
+    "closeup-medium-hi": {
+      "kind": "still",
+      "size": {
+        "width": 2520,
+        "height": 1575
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 22.122,
+          "p90": 25.326,
+          "mean": 22.389,
+          "min": 17.278
+        },
+        "wall": {
+          "median": 22.5,
+          "p90": 25.8,
+          "mean": 22.81,
+          "min": 17.8
+        },
+        "passes": {
+          "edges": 0.30000007152557373,
+          "probe": 8.799999952316284,
+          "refine": 13.299999952316284,
+          "resolve": 1.5,
+          "present": 0.6000000238418579
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 2451677,
+        "noiseMean": 0.37517776202865005,
+        "noiseP99": 5.31,
+        "flickerPct": 0.005669588612202994
+      },
+      "images": [
+        "closeup-medium-hi.single-s1.png",
+        "closeup-medium-hi.single-s2.png",
+        "closeup-medium-hi.converged.png"
+      ]
+    },
+    "closeup-medium-lo": {
+      "kind": "still",
+      "size": {
+        "width": 1280,
+        "height": 720
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 5.564,
+          "p90": 8.014,
+          "mean": 6.047,
+          "min": 4.419
+        },
+        "wall": {
+          "median": 6,
+          "p90": 8.4,
+          "mean": 6.458,
+          "min": 4.8
+        },
+        "passes": {
+          "edges": 0.3999999761581421,
+          "probe": 2.200000047683716,
+          "refine": 3.899999976158142,
+          "resolve": 0.6000000238418579,
+          "present": 0.40000009536743164
+        }
+      },
+      "temporal": {
+        "frames": 16,
+        "pixels": 516997,
+        "noiseMean": 0.39619117455788944,
+        "noiseP99": 4.13,
+        "flickerPct": 0.003080979469623891
+      },
+      "images": [
+        "closeup-medium-lo.single-s1.png",
+        "closeup-medium-lo.single-s2.png",
+        "closeup-medium-lo.converged.png"
+      ]
+    },
+    "orbit-ultra-hi": {
+      "kind": "moving",
+      "size": {
+        "width": 2520,
+        "height": 1575
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 1.567,
+          "p90": 3.681,
+          "mean": 1.812,
+          "min": 1.327
+        },
+        "wall": {
+          "median": 1.9,
+          "p90": 4,
+          "mean": 2.193,
+          "min": 1.7
+        },
+        "passes": {
+          "edges": 0.3999999761581421,
+          "render": 1.5,
+          "resolve": 0.6000000238418579,
+          "present": 0.40000009536743164
+        }
+      },
+      "temporal": {
+        "frames": 60,
+        "pixels": 706473,
+        "noiseMean": 26.317589034191727,
+        "noiseP99": 87.7,
+        "flickerPct": 10.444475096956873
+      },
+      "images": [
+        "orbit-ultra-hi.frame-00.png",
+        "orbit-ultra-hi.frame-01.png",
+        "orbit-ultra-hi.frame-02.png",
+        "orbit-ultra-hi.frame-03.png",
+        "orbit-ultra-hi.frame-04.png",
+        "orbit-ultra-hi.frame-05.png",
+        "orbit-ultra-hi.frame-06.png",
+        "orbit-ultra-hi.frame-07.png",
+        "orbit-ultra-hi.frame-08.png",
+        "orbit-ultra-hi.frame-09.png",
+        "orbit-ultra-hi.frame-10.png",
+        "orbit-ultra-hi.frame-11.png",
+        "orbit-ultra-hi.frame-12.png",
+        "orbit-ultra-hi.frame-13.png",
+        "orbit-ultra-hi.frame-14.png",
+        "orbit-ultra-hi.frame-15.png",
+        "orbit-ultra-hi.frame-16.png",
+        "orbit-ultra-hi.frame-17.png",
+        "orbit-ultra-hi.frame-18.png",
+        "orbit-ultra-hi.frame-19.png",
+        "orbit-ultra-hi.frame-20.png",
+        "orbit-ultra-hi.frame-21.png",
+        "orbit-ultra-hi.frame-22.png",
+        "orbit-ultra-hi.frame-23.png",
+        "orbit-ultra-hi.frame-24.png",
+        "orbit-ultra-hi.frame-25.png",
+        "orbit-ultra-hi.frame-26.png",
+        "orbit-ultra-hi.frame-27.png",
+        "orbit-ultra-hi.frame-28.png",
+        "orbit-ultra-hi.frame-29.png",
+        "orbit-ultra-hi.frame-30.png",
+        "orbit-ultra-hi.frame-31.png",
+        "orbit-ultra-hi.frame-32.png",
+        "orbit-ultra-hi.frame-33.png",
+        "orbit-ultra-hi.frame-34.png",
+        "orbit-ultra-hi.frame-35.png",
+        "orbit-ultra-hi.frame-36.png",
+        "orbit-ultra-hi.frame-37.png",
+        "orbit-ultra-hi.frame-38.png",
+        "orbit-ultra-hi.frame-39.png",
+        "orbit-ultra-hi.frame-40.png",
+        "orbit-ultra-hi.frame-41.png",
+        "orbit-ultra-hi.frame-42.png",
+        "orbit-ultra-hi.frame-43.png",
+        "orbit-ultra-hi.frame-44.png",
+        "orbit-ultra-hi.frame-45.png",
+        "orbit-ultra-hi.frame-46.png",
+        "orbit-ultra-hi.frame-47.png",
+        "orbit-ultra-hi.frame-48.png",
+        "orbit-ultra-hi.frame-49.png",
+        "orbit-ultra-hi.frame-50.png",
+        "orbit-ultra-hi.frame-51.png",
+        "orbit-ultra-hi.frame-52.png",
+        "orbit-ultra-hi.frame-53.png",
+        "orbit-ultra-hi.frame-54.png",
+        "orbit-ultra-hi.frame-55.png",
+        "orbit-ultra-hi.frame-56.png",
+        "orbit-ultra-hi.frame-57.png",
+        "orbit-ultra-hi.frame-58.png",
+        "orbit-ultra-hi.frame-59.png"
+      ]
+    },
+    "orbit-ultra-lo": {
+      "kind": "moving",
+      "size": {
+        "width": 1280,
+        "height": 720
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 0.491,
+          "p90": 0.619,
+          "mean": 0.587,
+          "min": 0.411
+        },
+        "wall": {
+          "median": 0.8,
+          "p90": 1.2,
+          "mean": 0.91,
+          "min": 0.6
+        },
+        "passes": {
+          "edges": 0.2999999523162842,
+          "render": 0.7000000476837158,
+          "resolve": 0.3999999761581421,
+          "present": 0.2999999523162842
+        }
+      },
+      "temporal": {
+        "frames": 60,
+        "pixels": 150648,
+        "noiseMean": 23.997324455684293,
+        "noiseP99": 83.84,
+        "flickerPct": 5.338260553489386
+      },
+      "images": [
+        "orbit-ultra-lo.frame-00.png",
+        "orbit-ultra-lo.frame-01.png",
+        "orbit-ultra-lo.frame-02.png",
+        "orbit-ultra-lo.frame-03.png",
+        "orbit-ultra-lo.frame-04.png",
+        "orbit-ultra-lo.frame-05.png",
+        "orbit-ultra-lo.frame-06.png",
+        "orbit-ultra-lo.frame-07.png",
+        "orbit-ultra-lo.frame-08.png",
+        "orbit-ultra-lo.frame-09.png",
+        "orbit-ultra-lo.frame-10.png",
+        "orbit-ultra-lo.frame-11.png",
+        "orbit-ultra-lo.frame-12.png",
+        "orbit-ultra-lo.frame-13.png",
+        "orbit-ultra-lo.frame-14.png",
+        "orbit-ultra-lo.frame-15.png",
+        "orbit-ultra-lo.frame-16.png",
+        "orbit-ultra-lo.frame-17.png",
+        "orbit-ultra-lo.frame-18.png",
+        "orbit-ultra-lo.frame-19.png",
+        "orbit-ultra-lo.frame-20.png",
+        "orbit-ultra-lo.frame-21.png",
+        "orbit-ultra-lo.frame-22.png",
+        "orbit-ultra-lo.frame-23.png",
+        "orbit-ultra-lo.frame-24.png",
+        "orbit-ultra-lo.frame-25.png",
+        "orbit-ultra-lo.frame-26.png",
+        "orbit-ultra-lo.frame-27.png",
+        "orbit-ultra-lo.frame-28.png",
+        "orbit-ultra-lo.frame-29.png",
+        "orbit-ultra-lo.frame-30.png",
+        "orbit-ultra-lo.frame-31.png",
+        "orbit-ultra-lo.frame-32.png",
+        "orbit-ultra-lo.frame-33.png",
+        "orbit-ultra-lo.frame-34.png",
+        "orbit-ultra-lo.frame-35.png",
+        "orbit-ultra-lo.frame-36.png",
+        "orbit-ultra-lo.frame-37.png",
+        "orbit-ultra-lo.frame-38.png",
+        "orbit-ultra-lo.frame-39.png",
+        "orbit-ultra-lo.frame-40.png",
+        "orbit-ultra-lo.frame-41.png",
+        "orbit-ultra-lo.frame-42.png",
+        "orbit-ultra-lo.frame-43.png",
+        "orbit-ultra-lo.frame-44.png",
+        "orbit-ultra-lo.frame-45.png",
+        "orbit-ultra-lo.frame-46.png",
+        "orbit-ultra-lo.frame-47.png",
+        "orbit-ultra-lo.frame-48.png",
+        "orbit-ultra-lo.frame-49.png",
+        "orbit-ultra-lo.frame-50.png",
+        "orbit-ultra-lo.frame-51.png",
+        "orbit-ultra-lo.frame-52.png",
+        "orbit-ultra-lo.frame-53.png",
+        "orbit-ultra-lo.frame-54.png",
+        "orbit-ultra-lo.frame-55.png",
+        "orbit-ultra-lo.frame-56.png",
+        "orbit-ultra-lo.frame-57.png",
+        "orbit-ultra-lo.frame-58.png",
+        "orbit-ultra-lo.frame-59.png"
+      ]
+    },
+    "drag-ultra-hi": {
+      "kind": "moving",
+      "size": {
+        "width": 2520,
+        "height": 1575
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 2.444,
+          "p90": 4.345,
+          "mean": 2.727,
+          "min": 2.009
+        },
+        "wall": {
+          "median": 2.8,
+          "p90": 4.8,
+          "mean": 3.122,
+          "min": 2.4
+        },
+        "passes": {
+          "edges": 0.30000007152557373,
+          "render": 2.3000000715255737,
+          "resolve": 0.6000000238418579,
+          "present": 0.30000007152557373
+        }
+      },
+      "temporal": {
+        "frames": 60,
+        "pixels": 706953,
+        "noiseMean": 26.207434852712595,
+        "noiseP99": 87.17,
+        "flickerPct": 9.661660188403491
+      },
+      "images": [
+        "drag-ultra-hi.frame-00.png",
+        "drag-ultra-hi.frame-01.png",
+        "drag-ultra-hi.frame-02.png",
+        "drag-ultra-hi.frame-03.png",
+        "drag-ultra-hi.frame-04.png",
+        "drag-ultra-hi.frame-05.png",
+        "drag-ultra-hi.frame-06.png",
+        "drag-ultra-hi.frame-07.png",
+        "drag-ultra-hi.frame-08.png",
+        "drag-ultra-hi.frame-09.png",
+        "drag-ultra-hi.frame-10.png",
+        "drag-ultra-hi.frame-11.png",
+        "drag-ultra-hi.frame-12.png",
+        "drag-ultra-hi.frame-13.png",
+        "drag-ultra-hi.frame-14.png",
+        "drag-ultra-hi.frame-15.png",
+        "drag-ultra-hi.frame-16.png",
+        "drag-ultra-hi.frame-17.png",
+        "drag-ultra-hi.frame-18.png",
+        "drag-ultra-hi.frame-19.png",
+        "drag-ultra-hi.frame-20.png",
+        "drag-ultra-hi.frame-21.png",
+        "drag-ultra-hi.frame-22.png",
+        "drag-ultra-hi.frame-23.png",
+        "drag-ultra-hi.frame-24.png",
+        "drag-ultra-hi.frame-25.png",
+        "drag-ultra-hi.frame-26.png",
+        "drag-ultra-hi.frame-27.png",
+        "drag-ultra-hi.frame-28.png",
+        "drag-ultra-hi.frame-29.png",
+        "drag-ultra-hi.frame-30.png",
+        "drag-ultra-hi.frame-31.png",
+        "drag-ultra-hi.frame-32.png",
+        "drag-ultra-hi.frame-33.png",
+        "drag-ultra-hi.frame-34.png",
+        "drag-ultra-hi.frame-35.png",
+        "drag-ultra-hi.frame-36.png",
+        "drag-ultra-hi.frame-37.png",
+        "drag-ultra-hi.frame-38.png",
+        "drag-ultra-hi.frame-39.png",
+        "drag-ultra-hi.frame-40.png",
+        "drag-ultra-hi.frame-41.png",
+        "drag-ultra-hi.frame-42.png",
+        "drag-ultra-hi.frame-43.png",
+        "drag-ultra-hi.frame-44.png",
+        "drag-ultra-hi.frame-45.png",
+        "drag-ultra-hi.frame-46.png",
+        "drag-ultra-hi.frame-47.png",
+        "drag-ultra-hi.frame-48.png",
+        "drag-ultra-hi.frame-49.png",
+        "drag-ultra-hi.frame-50.png",
+        "drag-ultra-hi.frame-51.png",
+        "drag-ultra-hi.frame-52.png",
+        "drag-ultra-hi.frame-53.png",
+        "drag-ultra-hi.frame-54.png",
+        "drag-ultra-hi.frame-55.png",
+        "drag-ultra-hi.frame-56.png",
+        "drag-ultra-hi.frame-57.png",
+        "drag-ultra-hi.frame-58.png",
+        "drag-ultra-hi.frame-59.png"
+      ]
+    },
+    "drag-ultra-lo": {
+      "kind": "moving",
+      "size": {
+        "width": 1280,
+        "height": 720
+      },
+      "timing": {
+        "frames": 60,
+        "gpu": {
+          "median": 0.807,
+          "p90": 1.059,
+          "mean": 0.919,
+          "min": 0.684
+        },
+        "wall": {
+          "median": 1.2,
+          "p90": 1.5,
+          "mean": 1.248,
+          "min": 1
+        },
+        "passes": {
+          "edges": 0.2999999523162842,
+          "render": 1,
+          "resolve": 0.30000007152557373,
+          "present": 0.2999999523162842
+        }
+      },
+      "temporal": {
+        "frames": 60,
+        "pixels": 150838,
+        "noiseMean": 23.508784641645526,
+        "noiseP99": 82.78,
+        "flickerPct": 4.149610612161666
+      },
+      "images": [
+        "drag-ultra-lo.frame-00.png",
+        "drag-ultra-lo.frame-01.png",
+        "drag-ultra-lo.frame-02.png",
+        "drag-ultra-lo.frame-03.png",
+        "drag-ultra-lo.frame-04.png",
+        "drag-ultra-lo.frame-05.png",
+        "drag-ultra-lo.frame-06.png",
+        "drag-ultra-lo.frame-07.png",
+        "drag-ultra-lo.frame-08.png",
+        "drag-ultra-lo.frame-09.png",
+        "drag-ultra-lo.frame-10.png",
+        "drag-ultra-lo.frame-11.png",
+        "drag-ultra-lo.frame-12.png",
+        "drag-ultra-lo.frame-13.png",
+        "drag-ultra-lo.frame-14.png",
+        "drag-ultra-lo.frame-15.png",
+        "drag-ultra-lo.frame-16.png",
+        "drag-ultra-lo.frame-17.png",
+        "drag-ultra-lo.frame-18.png",
+        "drag-ultra-lo.frame-19.png",
+        "drag-ultra-lo.frame-20.png",
+        "drag-ultra-lo.frame-21.png",
+        "drag-ultra-lo.frame-22.png",
+        "drag-ultra-lo.frame-23.png",
+        "drag-ultra-lo.frame-24.png",
+        "drag-ultra-lo.frame-25.png",
+        "drag-ultra-lo.frame-26.png",
+        "drag-ultra-lo.frame-27.png",
+        "drag-ultra-lo.frame-28.png",
+        "drag-ultra-lo.frame-29.png",
+        "drag-ultra-lo.frame-30.png",
+        "drag-ultra-lo.frame-31.png",
+        "drag-ultra-lo.frame-32.png",
+        "drag-ultra-lo.frame-33.png",
+        "drag-ultra-lo.frame-34.png",
+        "drag-ultra-lo.frame-35.png",
+        "drag-ultra-lo.frame-36.png",
+        "drag-ultra-lo.frame-37.png",
+        "drag-ultra-lo.frame-38.png",
+        "drag-ultra-lo.frame-39.png",
+        "drag-ultra-lo.frame-40.png",
+        "drag-ultra-lo.frame-41.png",
+        "drag-ultra-lo.frame-42.png",
+        "drag-ultra-lo.frame-43.png",
+        "drag-ultra-lo.frame-44.png",
+        "drag-ultra-lo.frame-45.png",
+        "drag-ultra-lo.frame-46.png",
+        "drag-ultra-lo.frame-47.png",
+        "drag-ultra-lo.frame-48.png",
+        "drag-ultra-lo.frame-49.png",
+        "drag-ultra-lo.frame-50.png",
+        "drag-ultra-lo.frame-51.png",
+        "drag-ultra-lo.frame-52.png",
+        "drag-ultra-lo.frame-53.png",
+        "drag-ultra-lo.frame-54.png",
+        "drag-ultra-lo.frame-55.png",
+        "drag-ultra-lo.frame-56.png",
+        "drag-ultra-lo.frame-57.png",
+        "drag-ultra-lo.frame-58.png",
+        "drag-ultra-lo.frame-59.png"
+      ]
+    }
+  },
+  "seconds": 80
+}
