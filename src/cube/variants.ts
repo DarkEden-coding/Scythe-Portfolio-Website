@@ -42,6 +42,14 @@ export class ProgramVariants {
     return this.parallel && !this.waitForCompile ? this.finished(defines) : null;
   }
 
+  /** The variant once it's ready, starting its compile if it hasn't started; null until then, and
+   * always where variants aren't compiled in the background (for a program only a variant can be,
+   * so there's no generic one to draw meanwhile). The benchmark's compile now instead. */
+  ready(defines: Defines): Program | null {
+    if (this.waitForCompile) return this.now(defines);
+    return this.parallel ? this.finished(defines) : null;
+  }
+
   /** The variant for these settings, compiled now if it isn't ready, holding the frame up. For the
    * debug views, which only the generic program's settings can't draw. */
   now(defines: Defines): Program {

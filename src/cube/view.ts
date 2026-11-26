@@ -134,9 +134,9 @@ export class CubeView {
    * is drawn as it is, without accumulating, so the counts are this frame's. */
   debugView: DebugView = 'off';
   /** Cast shadow rays for a quarter of the pixels and share them out to the rest (see
-   * shadowReuse.ts), instead of each pixel casting its own. Only while accumulating, and not in the
-   * probe/refine passes. An experiment: the site turns it on with ?shadows=reuse. */
-  shadowReuse = false;
+   * shadowReuse.ts), instead of each pixel casting its own. Only while the picture moves with
+   * several rays (dragging the paused cube), accumulating, and not in the probe/refine passes. */
+  shadowReuse = true;
 
   private passHook: ((pass: Pass | null) => void) | null = null;
   private warmed = new WeakSet<Program>(); // variants drawn once already (see warmUp)
@@ -274,15 +274,21 @@ export class CubeView {
     this.lastPose = pose;
     // With one ray, a pixel casts one shadow ray, and the passes reuse adds cost about what sharing
     // it saves (bench/ab.mjs: orbit, sweep and flight came out 3% faster to 10% slower), so only with more.
-    const reuse = this.shadowReuse && moving && this.samples > 1 && temporal && this.opts.sun && !twoPass;
     // The pass stays a uniform: as a constant it saves little, and the compiler then treats the
     // probe and refine passes' floating point differently enough to move soft shadow edges.
     const settings = {
       uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
-      uGlow: this.opts.glow, CARVING: this.carve[3] > 0, ...(reuse ? { SHADOW_REUSE: 1 } : {}),
+      uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
     };
-    // The generic program can't reuse shadows, so that variant is compiled when first wanted.
-    const render = debug ? this.render.now({ ...settings, DEBUG_VIEW: debug }) : reuse ? this.render.now(settings) : this.render.get(settings);
+    // Reusing shadows takes two programs the generic one can't stand in for. They compile in the
+    // background as soon as the settings would use them, before the first drag (compiled on the spot,
+    // that frame would stall), and until both are ready pixels cast their own shadow rays, as they do
+    // everywhere variants don't compile in the background.
+    const reusable = this.shadowReuse && !debug && this.samples > 1 && temporal && this.opts.sun && !twoPass;
+    const reuseRender = reusable ? this.render.ready({ ...settings, SHADOW_REUSE: 1 }) : null;
+    const shadowPass = reusable ? this.render.ready({ uSun: true, CARVING: settings.CARVING, SHADOW_PASS: 1 }) : null;
+    const reuse = moving && reuseRender && shadowPass ? { render: reuseRender, shadowPass } : null;
+    const render = debug ? this.render.now({ ...settings, DEBUG_VIEW: debug }) : reuse ? reuse.render : this.render.get(settings);
     // Variants the site will soon want compile in the background beforehand. It draws one ray while
     // the cube moves and two once it's still; compiling the other count's variant only when the
     // cube first settled cost two frames of 80-130 ms on Apple M5 (the compile competes with
@@ -390,8 +396,7 @@ export class CubeView {
         if (reuse) {
           gl.disable(gl.SCISSOR_TEST);
           this.passHook?.('shadows');
-          const shadowPass = this.render.now({ uSun: true, CARVING: settings.CARVING, SHADOW_PASS: 1 });
-          this.shadows.cast(() => (useRender(0, shadowPass), shadowPass), rect);
+          this.shadows.cast(() => (useRender(0, reuse.shadowPass), reuse.shadowPass), rect);
           this.passHook?.('combine');
           this.shadows.combine(rect);
         }

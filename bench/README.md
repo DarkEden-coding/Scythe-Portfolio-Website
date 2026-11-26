@@ -63,8 +63,8 @@ CUBE_BENCH_ANGLE=swiftshader CUBE_BENCH_WALL=1 node bench/ab.mjs --a main --scen
   Brave gives no WebGL with `gl` or `vulkan`.
 - `CUBE_BENCH_WALL` times each frame by wall clock (the draw plus a 1-pixel read) instead of timer
   queries. Use it for SwiftShader, whose timer queries may not cover all of its work.
-- `CUBE_BENCH_SHADOWS=reuse` turns reused shadows on (`CubeView.shadowReuse`, `?shadows=reuse` on
-  the site) where the version has them. `run.mjs` takes it too.
+- `CUBE_BENCH_SHADOWS=reuse` or `=off` turns reused shadows (`CubeView.shadowReuse`, on by default
+  since they were adopted) on or off where the version has them. `run.mjs` takes it too.
 - `CUBE_BENCH_GENERIC` draws the generic ray-cast program throughout, never a variant. That's what
   the site does without `KHR_parallel_shader_compile`, which SwiftShader lacks.
 
