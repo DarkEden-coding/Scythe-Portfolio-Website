@@ -138,6 +138,9 @@ void main() {
 // clear (1, 3, 7 and 2, 5, 11 took more brick steps at home).
 const REACH_RADII = [1, 2, 4];
 
+/** Steps per ray at which the debug views' step colour maps top out (see debugColor in RENDER_FS). */
+export const DEBUG_STEPS = { camera: 96, shadow: 48 };
+
 // Per brick, the highest level in it and in the cubes of bricks around it of each of REACH_RADII:
 // a square of bricks in each slice (REACH_PLANE_FS, from the brick atlas into an atlas, one draw),
 // then over the slices along z (REACH_FS, one z-slice of the 3D texture the ray-cast reads per
@@ -302,9 +305,10 @@ layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDepth; // distance to the first surface drawn, -1 for none; for reprojection
 layout(location = 2) out uint fragFaces;  // the probe's faces id (see faces)
 
-#ifdef STEP_COUNTS
-// Debugging only (bench/steps.mjs defines it): how much traversal work a pixel's rays do, output
-// instead of the colour. Camera-ray cells and bricks visited, shadow-ray cells and bricks, carved() calls.
+#if defined(STEP_COUNTS) || defined(DEBUG_VIEW)
+// Debugging only: how much traversal work a pixel's rays do. bench/steps.mjs defines STEP_COUNTS
+// and reads them back instead of the colour; DEBUG_VIEW (the settings' debug views) draws them.
+// Camera-ray cells and bricks visited, shadow-ray cells and bricks, carved() calls.
 ivec4 stepCount = ivec4(0);
 bool shadowRay = false;
 #define COUNT_CELL stepCount[shadowRay ? 2 : 0]++
@@ -314,6 +318,33 @@ bool shadowRay = false;
 #define COUNT_CELL
 #define COUNT_BRICK
 #define COUNT_CARVED
+#endif
+
+#ifdef DEBUG_VIEW
+// What the debug views show besides the step counts: whether a camera ray entered the box, the
+// first surface that covers the pixel more than half, and the camera rays' empty-space jumps (see
+// findShowing). The fade bands' sheets in front are mostly see-through, so the first one shaded
+// would show the box face instead of the voxels.
+struct Surface {
+  ivec3 cell;
+  vec3 normal;
+  vec3 pos;   // the hit, in cell units
+  float ao;
+  float dist; // from the eye, in world units
+};
+bool dbgEntered = false;
+bool dbgHit = false;
+Surface dbgShaded; // the last surface shade() lit
+Surface dbg;       // the one kept
+int dbgJumps = 0;   // empty bricks jumped out of
+int dbgReach = 0;   // their reaches added up: 0 for a one-brick jump, else the cube's radius (REACH_RADII)
+int dbgHollow = 0; // jumps across the bore's hollow
+// The first camera ray, for view 8 (see emptyBlocks): where it enters the box, in cell units and
+// in world units from the eye, its direction, and how far it runs in the box, in cells.
+bool dbgTraced = false;
+vec3 dbgP, dbgRd;
+float dbgTStart, dbgTLimit;
+
 #endif
 
 // Set by trace(): the distance along the ray to the first surface it drew, or -1.
@@ -584,6 +615,9 @@ bool findShowing(inout Ray r) {
       // that's only a cell or two on, step there instead.
       float hollow = CARVING ? boreHollow(r) : 0.0;
       if (hollow > 2.0) {
+#ifdef DEBUG_VIEW
+        if (!shadowRay) dbgHollow++;
+#endif
         jumpTo(r, r.t + hollow);
         r.brick = ivec3(-1);
         continue;
@@ -606,6 +640,12 @@ bool findShowing(inout Ray r) {
         reach = reachOf(clear);
       }
       if (empty) {
+#ifdef DEBUG_VIEW
+        if (!shadowRay) {
+          dbgJumps++;
+          dbgReach += reach;
+        }
+#endif
         brick += ivec3(r.stepDir) * reach;
         vec3 exitAt = vec3(brick * ${BRICK}) + (r.stepDir * 0.5 + 0.5) * float(${BRICK});
         vec3 tb = (exitAt - r.p) * r.inv;
@@ -646,6 +686,56 @@ vec2 boxSpan(vec3 p, vec3 rd, vec3 lo, vec3 hi) {
   return vec2(max(max(near.x, near.y), near.z), min(min(far.x, far.y), far.z));
 }
 
+#ifdef DEBUG_VIEW
+// View 8: the empty space the brick reach knows about, as an octree of aligned blocks 1, 2, 4 and 8
+// bricks wide (levels 0-3), drawn as wireframes in front of the first surface. The reach holds,
+// for each brick, whether the cubes of radius 1, 2 and 4 bricks around it are clear; a block
+// 2^k bricks wide lies inside the radius-2^(k-1) cube around its centre brick, so that cube being
+// clear makes the block empty. Every ray finds the same blocks, so unlike the centred cubes the
+// traversal jumps out of (which overlap, one per brick), they don't overlap and their edges line up.
+// The bore isn't in the reach, so its hollow shows as not empty.
+const vec3 BLOCK_COLORS[4] = vec3[4](vec3(0.25, 0.5, 1.0), vec3(0.2, 0.9, 0.55), vec3(1.0, 0.85, 0.2), vec3(1.0, 0.3, 0.25));
+const float BLOCK_ALPHA[4] = float[4](0.3, 0.7, 0.85, 0.95); // lone bricks faint: there are many
+vec4 emptyBlocks() {
+  float n = float(uN);
+  vec3 inv = 1.0 / dbgRd;
+  float tStop = min(dbgHit ? (dbg.dist - dbgTStart) * 0.5 * n : dbgTLimit, dbgTLimit);
+  vec4 wire = vec4(0.0);
+  float t = 0.0;
+  for (int i = 0; i < 256; i++) {
+    if (t >= tStop) break;
+    ivec3 b = ivec3(floor(dbgP + dbgRd * (t + 1e-3))) >> ${Math.log2(BRICK)};
+    // The largest empty block holding this brick, or -1 if the brick isn't empty.
+    int level = -1;
+    ivec3 base = b;
+    for (int k = 3; k >= 1; k--) {
+      ivec3 block = (b >> k) << k;
+      if (clearCubes(block + (1 << (k - 1)))[k] > 0.0) { level = k; base = block; break; }
+    }
+    if (level < 0 && clearCubes(b).x > 0.0) level = 0;
+    vec3 lo = vec3(base * ${BRICK}), hi = vec3((base + (1 << max(level, 0))) * ${BRICK});
+    vec3 ta = (lo - dbgP) * inv, tb = (hi - dbgP) * inv;
+    float tExit = min(min(max(ta.x, tb.x), max(ta.y, tb.y)), max(ta.z, tb.z));
+    if (level >= 0) {
+      // Its edges where the ray goes in and out, about a pixel wide. On a face one offset is 0 and
+      // the middle one is the distance to the nearest edge. Where the ray enters the box it isn't
+      // on a face of the block, so that point doesn't count.
+      for (int e = i == 0 ? 1 : 0; e < 2; e++) {
+        float te = e == 0 ? t : min(tExit, tStop);
+        vec3 q = dbgP + dbgRd * te;
+        float px = (dbgTStart + te * 2.0 / n) * uPixelAngle * 0.5 * n; // a pixel, in cells
+        vec3 off = min(q - lo, hi - q) / px;
+        float edge = max(min(off.x, off.y), min(max(off.x, off.y), off.z));
+        float cover = (1.0 - smoothstep(0.35, 1.0, edge)) * BLOCK_ALPHA[level];
+        wire += vec4(BLOCK_COLORS[level], 1.0) * cover * (1.0 - wire.a);
+      }
+    }
+    t = max(tExit, t + 1e-3);
+  }
+  return wire;
+}
+#endif
+
 // ---------- lighting ----------
 
 const vec3 STUDIO_LIGHT = normalize(vec3(-0.45, 0.85, 0.35));
@@ -665,7 +755,7 @@ vec3 sunDir;
 float sunlight(vec3 o) {
   vec2 span = boxSpan(o, sunDir, uOffset + FADE, uOffset + float(uN) - FADE);
   if (span.x >= span.y || span.y <= 0.0) return 1.0;
-#ifdef STEP_COUNTS
+#if defined(STEP_COUNTS) || defined(DEBUG_VIEW)
   shadowRay = true;
 #endif
   vec3 p = o + sunDir * max(span.x, 0.0);
@@ -677,7 +767,7 @@ float sunlight(vec3 o) {
     if (light < 0.02) break;
     stepCell(s);
   }
-#ifdef STEP_COUNTS
+#if defined(STEP_COUNTS) || defined(DEBUG_VIEW)
   shadowRay = false;
 #endif
   return light < 0.02 ? 0.0 : light;
@@ -730,6 +820,9 @@ vec3 shade(Ray r, float dist) {
   vec3 hot = mix(vec3(1.0, 0.93, 0.86), uAccent, smoothstep(0.0, 0.12, 1.0 - heat));
   vec3 surface = mix(albedo(chaos(r.cell), count), hot, 0.6 * heat);
   float ao = mix(mix(c.x, c.y, f.x), mix(c.z, c.w, f.x), f.y);
+#ifdef DEBUG_VIEW
+  dbgShaded = Surface(r.cell, r.normal, hit, ao, dist);
+#endif
 
   vec3 col;
   if (uSun) {
@@ -775,12 +868,18 @@ vec4 trace(vec2 pixel, vec2 sunOffset) {
   float tNear = max(max(tmin.x, tmin.y), tmin.z);
   float tFar = min(min(tmax.x, tmax.y), tmax.z);
   if (tNear > tFar || tFar < 0.0) return vec4(0.0);
+#ifdef DEBUG_VIEW
+  dbgEntered = true;
+#endif
 
   // Everything below is in cell units of the tiled volume, from where the ray enters the box.
   float n = float(uN);
   float tStart = max(tNear, 0.0);
   vec3 p = (ro + rd * tStart + 1.0) * 0.5 * n + uOffset;
   float tLimit = (tFar - tStart) * 0.5 * n;
+#ifdef DEBUG_VIEW
+  if (!dbgTraced) { dbgTraced = true; dbgP = p; dbgRd = rd; dbgTStart = tStart; dbgTLimit = tLimit; }
+#endif
   vec3 outerNormal = -sign(rd) * vec3(equal(tmin, vec3(tNear)));
   int axis = outerNormal.x != 0.0 ? 0 : outerNormal.y != 0.0 ? 1 : 2;
   float inward = -outerNormal[axis];
@@ -816,6 +915,9 @@ vec4 trace(vec2 pixel, vec2 sunOffset) {
       col += (1.0 - alpha) * a * shade(r, tStart);
       traceSunlit += (1.0 - alpha) * a * shadeSunlit;
       alpha += (1.0 - alpha) * a;
+#ifdef DEBUG_VIEW
+      if (!dbgHit && alpha >= 0.5) { dbgHit = true; dbg = dbgShaded; }
+#endif
       if (alpha > 0.995) { shadingSheet = false; return vec4(col, alpha); }
     }
     tPrev = tNext;
@@ -841,6 +943,9 @@ vec4 trace(vec2 pixel, vec2 sunOffset) {
       col += (1.0 - alpha) * a * shade(r, tStart + r.t * 2.0 / n);
       traceSunlit += (1.0 - alpha) * a * shadeSunlit;
       alpha += (1.0 - alpha) * a;
+#ifdef DEBUG_VIEW
+      if (!dbgHit && alpha >= 0.5) { dbgHit = true; dbg = dbgShaded; }
+#endif
       if (alpha > 0.995) break;
       stepCell(r);
     }
@@ -869,6 +974,69 @@ vec2 diskPoint(int k, float turn) {
   float a = float(i) * 2.39996323 + turn; // the golden angle
   return sqrt((float(i) + 0.5) / 16.0) * vec2(cos(a), sin(a));
 }
+
+#ifdef DEBUG_VIEW
+// Turbo colour map, as a polynomial fit (Mikhailov, 2019): 0 dark blue, through green, to 1 dark red.
+vec3 turbo(float x) {
+  const vec4 kr4 = vec4(0.13572138, 4.61539260, -42.66032258, 132.13108234);
+  const vec4 kg4 = vec4(0.09140261, 2.19418839, 4.84296658, -14.18503333);
+  const vec4 kb4 = vec4(0.10667330, 12.64194608, -60.58204836, 110.36276771);
+  const vec2 kr2 = vec2(-152.94239396, 59.28637943);
+  const vec2 kg2 = vec2(4.27729857, 2.82956604);
+  const vec2 kb2 = vec2(-89.90310912, 27.34824973);
+  x = clamp(x, 0.0, 1.0);
+  vec4 v4 = vec4(1.0, x, x * x, x * x * x);
+  vec2 v2 = v4.zw * v4.z;
+  return clamp(vec3(dot(v4, kr4) + dot(v2, kr2), dot(v4, kg4) + dot(v2, kg2), dot(v4, kb4) + dot(v2, kb2)), 0.0, 1.0);
+}
+
+const float DEBUG_CAMERA_STEPS = ${DEBUG_STEPS.camera.toFixed(1)};
+const float DEBUG_SHADOW_STEPS = ${DEBUG_STEPS.shadow.toFixed(1)};
+
+// The pixel's colour in debug view DEBUG_VIEW (see DEBUG_VIEWS in view.ts), premultiplied, over
+// the picture as drawn (also premultiplied).
+vec4 debugColor(int rays, vec4 picture) {
+  if (DEBUG_VIEW == 8) {
+    vec4 wire = emptyBlocks();
+    return wire + (1.0 - wire.a) * vec4(picture.rgb * 0.45, picture.a);
+  }
+  vec4 steps = vec4(stepCount) / float(rays);
+  if (DEBUG_VIEW == 1) return dbgEntered ? vec4(turbo((steps.x + steps.y) / DEBUG_CAMERA_STEPS), 1.0) : vec4(0.0);
+  if (DEBUG_VIEW == 2) return dbgEntered ? vec4(turbo(steps.z / DEBUG_SHADOW_STEPS), 1.0) : vec4(0.0);
+  if (DEBUG_VIEW == 3) {
+    if (!dbgEntered) return vec4(0.0);
+    // The camera rays' average jump out of empty space, from one brick to the widest cube's reach;
+    // grey where they made none, and pink where they jumped across the bore's hollow.
+    vec3 c = dbgJumps == 0 ? vec3(0.12) : turbo(float(dbgReach) / float(dbgJumps * ${REACH_RADII[2]}));
+    if (dbgHollow > 0) c = mix(c, vec3(0.9, 0.2, 0.9), 0.6);
+    return vec4(c, 1.0);
+  }
+  if (!dbgHit) return vec4(0.0);
+  float lambert = 0.55 + 0.45 * max(dot(dbg.normal, STUDIO_LIGHT), 0.0);
+  if (DEBUG_VIEW == 4) {
+    // Each brick its own colour, with its edges drawn dark and the voxels' faint.
+    ivec3 b = dbg.cell >> ${Math.log2(BRICK)};
+    uint h = uint(b.x) * 73856093u ^ uint(b.y) * 19349663u ^ uint(b.z) * 83492791u;
+    h = (h ^ (h >> 13u)) * 0x5bd1e995u;
+    vec3 c = 0.35 + 0.6 * vec3(uvec3(h, h >> 8u, h >> 16u) & 255u) / 255.0;
+    vec3 across = vec3(1.0) - abs(dbg.normal); // the face's own axes
+    vec3 inBrick = fract(dbg.pos / float(${BRICK}));
+    vec3 eb = mix(vec3(1.0), min(inBrick, 1.0 - inBrick), across);
+    vec3 ev = mix(vec3(1.0), min(fract(dbg.pos), 1.0 - fract(dbg.pos)), across);
+    float brickEdge = step(min(min(eb.x, eb.y), eb.z), 0.02);
+    float voxelEdge = step(min(min(ev.x, ev.y), ev.z), 0.04);
+    c *= lambert * mix(1.0, 0.75, voxelEdge) * mix(1.0, 0.15, brickEdge);
+    return vec4(c, 1.0);
+  }
+  if (DEBUG_VIEW == 5) return vec4(dbg.normal * 0.5 + 0.5, 1.0);
+  if (DEBUG_VIEW == 6) {
+    // Near the box's nearest possible point bright, at its farthest dark.
+    float near = length(uEye) - ${Math.sqrt(3).toFixed(4)};
+    return vec4(vec3(1.0 - clamp((dbg.dist - near) / ${(2 * Math.sqrt(3)).toFixed(4)}, 0.0, 1.0)), 1.0);
+  }
+  return vec4(vec3(dbg.ao), 1.0); // 7: ambient occlusion alone
+}
+#endif
 
 // Extra rays only help where a pixel straddles an edge: where voxels are several pixels wide, most
 // pixels sit inside one face and every ray in them comes out the same. So with several rays the
@@ -918,6 +1086,9 @@ void main() {
 #ifdef STEP_COUNTS
   // Drawn straight over the cleared canvas, so the counts read back as written, 1020 at most.
   fragColor = min(vec4(stepCount) / float(rays), 1020.0) / 1020.0;
+#endif
+#ifdef DEBUG_VIEW
+  fragColor = debugColor(rays, fragColor);
 #endif
 }`;
 

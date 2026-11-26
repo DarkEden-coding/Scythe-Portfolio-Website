@@ -229,6 +229,23 @@
                 <span>Show FPS</span>
               </label>
             </div>
+
+            <fieldset class="seg seg--3" id="debug-view">
+              <legend>Debug view</legend>
+              <label><input type="radio" name="debug-view" value="off" /><span>Off<small>debug</small></span></label>
+              <label><input type="radio" name="debug-view" value="steps" /><span>Steps<small>debug</small></span></label>
+              <label><input type="radio" name="debug-view" value="shadow" /><span>Shadow<small>debug</small></span></label>
+              <label><input type="radio" name="debug-view" value="skips" /><span>Skips<small>debug</small></span></label>
+              <label><input type="radio" name="debug-view" value="bricks" /><span>Bricks<small>debug</small></span></label>
+              <label><input type="radio" name="debug-view" value="normals" /><span>Normal<small>debug</small></span></label>
+              <label><input type="radio" name="debug-view" value="depth" /><span>Depth<small>debug</small></span></label>
+              <label><input type="radio" name="debug-view" value="ao" /><span>AO<small>debug</small></span></label>
+              <label><input type="radio" name="debug-view" value="empty" /><span>Empty<small>debug</small></span></label>
+            </fieldset>
+            <div class="debug-legend mono" id="debug-legend" hidden>
+              <span class="debug-legend__bar" id="debug-legend-bar" aria-hidden="true"></span>
+              <span id="debug-legend-text"></span>
+            </div>
           </div>
         </aside>
       </div>

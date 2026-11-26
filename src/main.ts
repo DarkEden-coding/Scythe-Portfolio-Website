@@ -8,8 +8,9 @@ import { chaosToLevel, levelToChaos } from './cube/cubeFile.ts';
 import { Flight, type Pose } from './cube/flight.ts';
 import { isSoftwareRenderer } from './cube/gl.ts';
 import { OrbitCamera } from './cube/orbitCamera.ts';
+import { DEBUG_STEPS } from './cube/shaders.ts';
 import { type Cube, unpackCube } from './cube/unpack.ts';
-import { type ColorBy, CubeView, type Samples } from './cube/view.ts';
+import { type ColorBy, CubeView, type DebugView, type Samples } from './cube/view.ts';
 import { CHAOS, cubeUrl, GRID, PRESETS, type Quality } from './presets.ts';
 import { BORE, CENTER, FLOOR, HOME, layout as cubeLayout, MAX_DPR, type Palette, PALETTES, PLAIN_GLOW, stationPose, viewOptions } from './scene.ts';
 import { PROJECTS } from './projects/content.ts';
@@ -264,6 +265,27 @@ bindChoice<Lighting>('lighting', lighting, l => {
 });
 
 bindFilter(k => view?.setFilter(k));
+
+// Debug views: what the ray-cast does instead of the picture. Not kept between visits.
+const DEBUG_LEGENDS: Record<DebugView, [kind: 'none' | 'heat' | 'reach', text: string]> = {
+  off: ['none', ''],
+  steps: ['heat', `Camera-ray cells and bricks visited, per ray: 0 to ${DEBUG_STEPS.camera}+.`],
+  shadow: ['heat', `Shadow-ray cells and bricks visited, per ray: 0 to ${DEBUG_STEPS.shadow}+. Sun lighting only.`],
+  skips: ['heat', 'Average jump out of empty space, per camera ray: 1 brick to a 9³-brick cube. Grey: none. Pink: crossed the bore.'],
+  bricks: ['none', 'First surface coloured by its 4³ brick. Dark lines are brick edges.'],
+  normals: ['none', "First surface's normal, xyz as rgb."],
+  depth: ['none', 'Distance to the first surface, nearer brighter.'],
+  ao: ['none', 'Ambient occlusion alone.'],
+  empty: ['reach', 'Empty space the brick reach knows about, as aligned blocks 1, 2, 4 and 8 bricks wide (4 to 32 voxels), in front of the surface. Ignores the bore.'],
+};
+const debugLegend = $('#debug-legend');
+bindChoice<DebugView>('debug-view', 'off', d => {
+  if (view) view.debugView = d;
+  const [kind, text] = DEBUG_LEGENDS[d];
+  debugLegend.hidden = d === 'off';
+  $('#debug-legend-bar').dataset.kind = kind;
+  $('#debug-legend-text').textContent = text;
+});
 
 // Whether voxels glow as they appear.
 const glowSwitch = $<HTMLInputElement>('#glow');

@@ -31,6 +31,10 @@ export interface ViewOptions {
 
 const COLOR_BY: Record<ColorBy, number> = { plain: 0, neighbours: 1, chaos: 2, both: 3 };
 
+// RENDER_FS's DEBUG_VIEW for each debug view (see debugColor there).
+export type DebugView = 'off' | 'steps' | 'shadow' | 'skips' | 'bricks' | 'normals' | 'depth' | 'ao' | 'empty';
+const DEBUG_VIEWS: Record<DebugView, number> = { off: 0, steps: 1, shadow: 2, skips: 3, bricks: 4, normals: 5, depth: 6, ao: 7, empty: 8 };
+
 // RENDER_FS's uMode: 0 all rays, 1 the probe pass, 2 the refine pass.
 type RenderMode = 0 | 1 | 2;
 
@@ -125,6 +129,9 @@ export class CubeView {
   /** Once a still picture has converged, stop casting rays and show it as it is (see freeze.ts).
    * The benchmark turns this off to time the rays. */
   freezeWhenStill = true;
+  /** Draws what the ray-cast does instead of the picture (see debugColor in RENDER_FS). Each frame
+   * is drawn as it is, without accumulating, so the counts are this frame's. */
+  debugView: DebugView = 'off';
 
   private passHook: ((pass: Pass | null) => void) | null = null;
   private warmed = new WeakSet<Program>(); // variants drawn once already (see warmUp)
@@ -244,7 +251,8 @@ export class CubeView {
   draw(camera: CameraBasis, pixelWidth: number, pixelHeight: number, shift: [number, number], focal: number): void {
     const { gl } = this;
     if (this.incoming) this.continueLoad(this.incoming);
-    const temporal = this.accumulate && this.accumulator.supported;
+    const debug = DEBUG_VIEWS[this.debugView];
+    const temporal = !debug && this.accumulate && this.accumulator.supported;
     if (!temporal) this.accumulator.reset();
     this.trail.sample(this.trailPoints);
     // The pass stays a uniform: as a constant it saves little, and the compiler then treats the
@@ -253,7 +261,7 @@ export class CubeView {
       uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
       uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
     };
-    const render = this.render.get(settings);
+    const render = debug ? this.render.now({ ...settings, DEBUG_VIEW: debug }) : this.render.get(settings);
     // Variants the site will soon want compile in the background beforehand. It draws one ray while
     // the cube moves and two once it's still; compiling the other count's variant only when the
     // cube first settled cost two frames of 80-130 ms on Apple M5 (the compile competes with
@@ -261,8 +269,8 @@ export class CubeView {
     // takes it away, so the other bore setting's variants compile too, once this frame's is ready
     // (not to hold that one up); left to the flight, the generic program drew its first quarter
     // second. Each is drawn once as soon as it is ready (see warmUp).
-    const prepared = [this.render.prepare({ ...settings, uSamples: this.samples === 1 ? 2 : 1 })];
-    if (render !== this.render.generic) {
+    const prepared = debug ? [] : [this.render.prepare({ ...settings, uSamples: this.samples === 1 ? 2 : 1 })];
+    if (!debug && render !== this.render.generic) {
       for (const uSamples of [1, 2]) prepared.push(this.render.prepare({ ...settings, uSamples, CARVING: !settings.CARVING }));
     }
     // The passes below leave the pixels outside the cube alone (see screenRect.ts). The scissor

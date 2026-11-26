@@ -42,12 +42,18 @@ export class ProgramVariants {
     return this.parallel && !this.waitForCompile ? this.finished(defines) : null;
   }
 
+  /** The variant for these settings, compiled now if it isn't ready, holding the frame up. For the
+   * debug views, which only the generic program's settings can't draw. */
+  now(defines: Defines): Program {
+    return this.finished(defines, true)!;
+  }
+
   /** The variant, started if it isn't yet, once its compile has finished. */
-  private finished(defines: Defines): Program | null {
+  private finished(defines: Defines, wait = this.waitForCompile): Program | null {
     const variant = this.start(defines);
     if (!(variant instanceof WebGLProgram)) return variant;
     // Unlike LINK_STATUS, this answers without waiting for the compile.
-    if (!this.waitForCompile && !this.gl.getProgramParameter(variant, this.parallel!.COMPLETION_STATUS_KHR)) return null;
+    if (!wait && !this.gl.getProgramParameter(variant, this.parallel!.COMPLETION_STATUS_KHR)) return null;
     const program = finishProgram(this.gl, variant);
     this.variants.set(key(defines), program);
     return program;

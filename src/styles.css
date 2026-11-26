@@ -150,6 +150,16 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 
 .filter { display: flex; align-items: center; gap: 14px; }
 .switches { display: flex; flex-wrap: wrap; gap: 0 24px; }
+
+/* What the debug view's colours mean (see debugColor in shaders.ts). */
+.debug-legend { display: grid; gap: 6px; font-size: 11px; line-height: 1.45; color: var(--muted); }
+.debug-legend[hidden] { display: none; }
+.debug-legend__bar { height: 8px; border-radius: 4px; }
+.debug-legend__bar[data-kind="none"] { display: none; }
+/* Turbo, as the shader draws it. */
+.debug-legend__bar[data-kind="heat"] { background: linear-gradient(90deg, #30123b, #4686fb, #1be5b5, #a4fc3c, #fbb938, #e4460a, #7a0403); }
+/* BLOCK_COLORS in shaders.ts: blocks 1, 2, 4 and 8 bricks wide. */
+.debug-legend__bar[data-kind="reach"] { background: linear-gradient(90deg, #4080ff 0 25%, #33e68c 25% 50%, #ffd933 50% 75%, #ff4d40 75%); }
 .switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; position: relative; flex: none; min-height: 40px; }
 .switch input { position: absolute; opacity: 0; width: 34px; height: 20px; margin: 0; cursor: pointer; }
 .switch__track { width: 34px; height: 20px; border-radius: 999px; background: rgba(255, 255, 255, 0.12); position: relative; transition: background-color 0.2s; }
