@@ -44,6 +44,11 @@ export class Stillness {
     return this.frames >= FREEZE_AFTER;
   }
 
+  /** Frames in a row with the same picture, as of the last frozen(). */
+  get unchanged(): number {
+    return this.frames;
+  }
+
   reset(): void {
     this.lastKey = '';
     this.frames = 0;

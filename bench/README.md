@@ -63,6 +63,9 @@ CUBE_BENCH_ANGLE=swiftshader CUBE_BENCH_WALL=1 node bench/ab.mjs --a main --scen
   Brave gives no WebGL with `gl` or `vulkan`.
 - `CUBE_BENCH_WALL` times each frame by wall clock (the draw plus a 1-pixel read) instead of timer
   queries. Use it for SwiftShader, whose timer queries may not cover all of its work.
+- `CUBE_BENCH_SCALE` (e.g. `0.5`) sets the view's `renderScale` where it has one: moving pictures
+  cast their rays at that scale and upscale them (temporal upscaling). `run.mjs` takes it too.
+  `CUBE_BENCH_STILL_SCALE` sets `stillScale`, the same for still pictures (`ab.mjs` only).
 - `CUBE_BENCH_GENERIC` draws the generic ray-cast program throughout, never a variant. That's what
   the site does without `KHR_parallel_shader_compile`, which SwiftShader lacks.
 

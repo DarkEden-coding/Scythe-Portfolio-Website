@@ -90,6 +90,13 @@ are five presets, each at four grid sizes (64³, 112³, 160³, 320³).
   (`accumulate.ts`). Once a still picture has accumulated 32 frames with nothing changed, the view
   stops casting rays and shows it as it is until something does (`freeze.ts`), which at a
   project is most of the time.
+- **Temporal upscaling:** with temporal AA on, a render resolution below 100% casts the rays at it
+  while the picture moves and builds the full-resolution history from them (as FSR 2 and Unreal's
+  TSR do): the jitter moves the rays across their larger pixels from frame to frame, and each output
+  pixel takes the ray nearest its centre, weighted by how near, with the history counting how many
+  rays' worth each pixel holds. `?taau=67` pins that scale, in %, for a visit, and still pictures
+  then go back to a ray per pixel, keeping the history, so they converge and freeze as at full
+  resolution. A resolution picked in the settings or adapted applies to still pictures too.
 - **Adaptive quality:** when frames run long, the renderer drops rays per pixel first, then render
   resolution, then grid size. Each can also be pinned in the settings panel.
 - **Loading:** a worker streams and unpacks the files (`unpack.worker.ts`) and keeps them in Cache

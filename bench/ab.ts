@@ -41,6 +41,12 @@ async function contestant(name: 'a' | 'b'): Promise<Contestant> {
   if ('waitForShaders' in switches) switches.waitForShaders = !generic;
   const render = switches.render as { get?: unknown; generic?: unknown } | undefined;
   if (generic && render?.generic) render.get = () => render.generic;
+  // ?scale=0.5 (CUBE_BENCH_SCALE): cast the rays at that fraction of the resolution and upscale,
+  // while moving; ?stillscale (CUBE_BENCH_STILL_SCALE) the same for still pictures.
+  const scale = new URLSearchParams(location.search).get('scale');
+  if (scale && 'renderScale' in switches) switches.renderScale = Number(scale);
+  const stillScale = new URLSearchParams(location.search).get('stillscale');
+  if (stillScale && 'stillScale' in switches) switches.stillScale = Number(stillScale);
   if ('freezeWhenStill' in switches) switches.freezeWhenStill = false; // time the rays, not a frozen picture
   view.setFilter(FILTER_K);
   // Wall clock where there are no timer queries, or when asked for (?wall): a CPU renderer's

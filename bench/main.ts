@@ -41,6 +41,8 @@ const { gl } = view;
 view.waitForShaders = true;
 view.freezeWhenStill = false; // still scenes are timed, and their noise measured, while they accumulate
 view.setFilter(FILTER_K);
+// ?scale=0.5 (CUBE_BENCH_SCALE): cast the rays at that fraction of the resolution and upscale.
+view.renderScale = Number(new URLSearchParams(location.search).get('scale') ?? 1);
 const timer = GpuTimer.create(gl);
 
 const cubes = new Map<string, Promise<Uint8Array>>();
