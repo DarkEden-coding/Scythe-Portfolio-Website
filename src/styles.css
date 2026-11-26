@@ -108,7 +108,13 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .id-card__facts a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 /* Above the "what is this" button, which the open settings can grow over. */
-.sim-card { position: relative; z-index: 2; flex: 0 0 340px; min-width: 0; padding: 16px; display: grid; gap: 14px; font-size: 13px; }
+/* Open, the settings make the card taller than the space under the nav on most screens, so the card
+   stops short of it and the settings scroll inside, keeping the header and threshold in reach.
+   (Stacked on narrow screens the hero grows with the card instead, so there's no limit to hit.) */
+.sim-card {
+  position: relative; z-index: 2; flex: 0 0 340px; min-width: 0; max-height: calc(100% - 96px); padding: 16px;
+  display: flex; flex-direction: column; gap: 14px; font-size: 13px;
+}
 .sim-card__head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .sim-card__label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
 .sim-card__head > div { min-width: 0; }
@@ -116,7 +122,11 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .sim-card__readout span { white-space: nowrap; }
 .sim-card__readout b { color: var(--ink); font-weight: 500; }
 .sim-card__actions { display: flex; gap: 6px; }
-.sim-card__settings { display: grid; gap: 14px; }
+.sim-card__settings {
+  display: grid; gap: 14px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  /* Room for the focus outlines, which the scrolling would clip. */
+  margin: -4px -6px -4px; padding: 4px 6px;
+}
 .icon-btn--caret svg { transition: transform 0.25s var(--ease); }
 .icon-btn--caret[aria-expanded='true'] svg { transform: rotate(180deg); }
 
