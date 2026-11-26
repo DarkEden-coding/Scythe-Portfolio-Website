@@ -63,6 +63,8 @@ CUBE_BENCH_ANGLE=swiftshader CUBE_BENCH_WALL=1 node bench/ab.mjs --a main --scen
   Brave gives no WebGL with `gl` or `vulkan`.
 - `CUBE_BENCH_WALL` times each frame by wall clock (the draw plus a 1-pixel read) instead of timer
   queries. Use it for SwiftShader, whose timer queries may not cover all of its work.
+- `CUBE_BENCH_SHADOWS=reuse` turns reused shadows on (`CubeView.shadowReuse`, `?shadows=reuse` on
+  the site) where the version has them. `run.mjs` takes it too.
 - `CUBE_BENCH_GENERIC` draws the generic ray-cast program throughout, never a variant. That's what
   the site does without `KHR_parallel_shader_compile`, which SwiftShader lacks.
 
@@ -93,6 +95,7 @@ they accumulate, not as the frozen picture the site shows once they have converg
 | `closeup-medium` | 112³ at the closest distance. Voxels are about 11 px wide, so the probe/refine path runs |
 | `orbit-ultra` | camera turning 0.01 rad a frame for 60 frames with 1 ray and a short history, as in a flight |
 | `drag-ultra` | the same turn with 2 rays and the settled history. This is what `main.ts` does while you drag the finished cube |
+| `station-drag-ultra` | the drag at the station, where shadow rays cost the most |
 
 ## What a run records (`results.json`)
 

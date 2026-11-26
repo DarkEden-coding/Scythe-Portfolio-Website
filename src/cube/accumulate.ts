@@ -87,6 +87,12 @@ export class Accumulator {
     gl.clearBufferfv(gl.COLOR, 1, [-1, 0, 0, 0]);
   }
 
+  /** This frame's colour and first-surface distance, after begin(): for drawing them in passes of
+   * one's own (see shadowReuse.ts). */
+  get frameTextures(): { color: WebGLTexture; depth: WebGLTexture } {
+    return this.frame!;
+  }
+
   /** Blends this frame into the history, then draws the result into the default framebuffer
    * (premultiplied, over whatever is there). `motion` is how far the voxels moved since the last
    * frame, in world units. `settled`: the cube isn't changing, so still pixels can keep a long history.

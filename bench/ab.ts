@@ -42,6 +42,8 @@ async function contestant(name: 'a' | 'b'): Promise<Contestant> {
   const render = switches.render as { get?: unknown; generic?: unknown } | undefined;
   if (generic && render?.generic) render.get = () => render.generic;
   if ('freezeWhenStill' in switches) switches.freezeWhenStill = false; // time the rays, not a frozen picture
+  // ?shadows=reuse (CUBE_BENCH_SHADOWS): reused shadows, where the version has them.
+  if ('shadowReuse' in switches) switches.shadowReuse = new URLSearchParams(location.search).get('shadows') === 'reuse';
   view.setFilter(FILTER_K);
   // Wall clock where there are no timer queries, or when asked for (?wall): a CPU renderer's
   // timer queries may not cover all of its work.

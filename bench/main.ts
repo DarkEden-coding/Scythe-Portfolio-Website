@@ -41,6 +41,7 @@ const { gl } = view;
 view.waitForShaders = true;
 view.freezeWhenStill = false; // still scenes are timed, and their noise measured, while they accumulate
 view.setFilter(FILTER_K);
+view.shadowReuse = new URLSearchParams(location.search).get('shadows') === 'reuse'; // CUBE_BENCH_SHADOWS
 const timer = GpuTimer.create(gl);
 
 const cubes = new Map<string, Promise<Uint8Array>>();

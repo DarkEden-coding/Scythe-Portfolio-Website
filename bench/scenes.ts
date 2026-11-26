@@ -66,6 +66,11 @@ const BASES: Base[] = [
     name: 'drag-ultra', preset: 0, quality: 'ultra', pose: home, lambda: FLOOR, sun: true, samples: 2,
     motion: { frames: 60, yawPerFrame: 0.01, samples: 2, settled: true },
   },
+  // The same at a project, where shadow rays cost the most.
+  {
+    name: 'station-drag-ultra', preset: station.preset, quality: 'ultra', pose: stationPose(station), lambda: station.lambda, sun: true, samples: 2,
+    motion: { frames: 60, yawPerFrame: 0.01, samples: 2, settled: true },
+  },
 ];
 
 export const SCENES: Scene[] = BASES.flatMap(({ name, quality, ...base }) => RESOLUTIONS.map(resolution => ({

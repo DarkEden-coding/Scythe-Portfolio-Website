@@ -9,6 +9,7 @@ import { createProgram, hexToRgb, type Program } from './gl.ts';
 import type { CameraBasis } from './orbitCamera.ts';
 import { ProbeTarget } from './probe.ts';
 import { cubeRect, type Rect } from './screenRect.ts';
+import { ShadowReuse } from './shadowReuse.ts';
 import { BRICK, BRICKS_FS, EDGES_FS, EDGES_VS, FILTER_FS, FULLSCREEN_VS, OCCUPANCY_FS, PROBE_EDGES_FS, REACH_FS, REACH_PLANE_FS, RENDER_FS } from './shaders.ts';
 import { ThresholdTrail, TRAIL_SAMPLES } from './thresholdTrail.ts';
 import { ProgramVariants } from './variants.ts';
@@ -16,7 +17,7 @@ import { ProgramVariants } from './variants.ts';
 export type ColorBy = 'plain' | 'neighbours' | 'chaos' | 'both';
 export type Samples = 1 | 2 | 4;
 /** The GPU passes of a draw, for profiling (see CubeView.onPass). */
-export type Pass = 'edges' | 'bricks' | 'occupancy' | 'probe' | 'refine' | 'render' | 'resolve' | 'present';
+export type Pass = 'edges' | 'bricks' | 'occupancy' | 'probe' | 'refine' | 'render' | 'shadows' | 'combine' | 'resolve' | 'present';
 
 export interface ViewOptions {
   glow: boolean; // whether new voxels glow
@@ -132,6 +133,10 @@ export class CubeView {
   /** Draws what the ray-cast does instead of the picture (see debugColor in RENDER_FS). Each frame
    * is drawn as it is, without accumulating, so the counts are this frame's. */
   debugView: DebugView = 'off';
+  /** Cast shadow rays for a quarter of the pixels and share them out to the rest (see
+   * shadowReuse.ts), instead of each pixel casting its own. Only while accumulating, and not in the
+   * probe/refine passes. An experiment: the site turns it on with ?shadows=reuse. */
+  shadowReuse = false;
 
   private passHook: ((pass: Pass | null) => void) | null = null;
   private warmed = new WeakSet<Program>(); // variants drawn once already (see warmUp)
@@ -148,6 +153,8 @@ export class CubeView {
   private filterTarget: WebGLFramebuffer;
   private accumulator: Accumulator;
   private probe: ProbeTarget;
+  private shadows: ShadowReuse;
+  private lastPose = ''; // the camera and volume's last frame, to tell whether the picture moves
   private lastOffset: [number, number, number] | null = null; // for the voxels' motion between frames
   private trailPoints = new Float32Array(TRAIL_SAMPLES);
   private stillness = new Stillness();
@@ -182,6 +189,7 @@ export class CubeView {
     this.filterTarget = gl.createFramebuffer();
     this.accumulator = new Accumulator(gl);
     this.probe = new ProbeTarget(gl);
+    this.shadows = new ShadowReuse(gl);
     gl.bindVertexArray(gl.createVertexArray());
   }
 
@@ -255,13 +263,26 @@ export class CubeView {
     const temporal = !debug && this.accumulate && this.accumulator.supported;
     if (!temporal) this.accumulator.reset();
     this.trail.sample(this.trailPoints);
+    // With several rays, voxels at least PROBE_FROM_PX wide draw in two passes (see RENDER_FS).
+    const n = this.volume?.n ?? 0;
+    const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
+    const twoPass = temporal && this.samples > 1 && voxelPx >= PROBE_FROM_PX;
+    // Shadows are reused only while the picture moves: a still one casts its own, so it stays as
+    // exact as without (and once it has converged it isn't drawn again; see freeze.ts).
+    const pose = JSON.stringify([camera, shift, focal, this.offset, this.threshold]);
+    const moving = !this.settled || pose !== this.lastPose;
+    this.lastPose = pose;
+    // With one ray, a pixel casts one shadow ray, and the passes reuse adds cost about what sharing
+    // it saves (bench/ab.mjs: orbit, sweep and flight came out 3% faster to 10% slower), so only with more.
+    const reuse = this.shadowReuse && moving && this.samples > 1 && temporal && this.opts.sun && !twoPass;
     // The pass stays a uniform: as a constant it saves little, and the compiler then treats the
     // probe and refine passes' floating point differently enough to move soft shadow edges.
     const settings = {
       uSamples: this.samples, uSun: this.opts.sun, uColorBy: COLOR_BY[this.opts.colorBy],
-      uGlow: this.opts.glow, CARVING: this.carve[3] > 0,
+      uGlow: this.opts.glow, CARVING: this.carve[3] > 0, ...(reuse ? { SHADOW_REUSE: 1 } : {}),
     };
-    const render = debug ? this.render.now({ ...settings, DEBUG_VIEW: debug }) : this.render.get(settings);
+    // The generic program can't reuse shadows, so that variant is compiled when first wanted.
+    const render = debug ? this.render.now({ ...settings, DEBUG_VIEW: debug }) : reuse ? this.render.now(settings) : this.render.get(settings);
     // Variants the site will soon want compile in the background beforehand. It draws one ray while
     // the cube moves and two once it's still; compiling the other count's variant only when the
     // cube first settled cost two frames of 80-130 ms on Apple M5 (the compile competes with
@@ -308,7 +329,6 @@ export class CubeView {
 
     const volume = this.volume;
     if (volume && volume !== this.incoming?.volume) {
-      const { n } = volume;
       if (volume.bricksStale) {
         this.passHook?.('bricks');
         this.refreshBricks(volume);
@@ -334,9 +354,6 @@ export class CubeView {
       gl.bindTexture(gl.TEXTURE_2D, volume.occupancy);
       const useRender = (mode: RenderMode, program = render): void => this.useRender(program, mode, n, occupancy, camera, pixelWidth, pixelHeight, shift, focal, temporal);
 
-      // How wide a voxel at the cube's centre is on screen, in pixels.
-      const voxelPx = (pixelHeight * focal) / (n * Math.hypot(...camera.eye));
-      const twoPass = temporal && this.samples > 1 && voxelPx >= PROBE_FROM_PX;
       gl.scissor(...rect);
       this.passHook?.(twoPass ? 'probe' : 'render');
       if (twoPass) {
@@ -364,8 +381,20 @@ export class CubeView {
       }
       else {
         if (temporal) this.warmUp(prepared, rect, useRender);
+        if (reuse) {
+          this.shadows.begin(pixelWidth, pixelHeight, this.accumulator.frameTextures);
+          gl.enable(gl.SCISSOR_TEST);
+        }
         useRender(0);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
+        if (reuse) {
+          gl.disable(gl.SCISSOR_TEST);
+          this.passHook?.('shadows');
+          const shadowPass = this.render.now({ uSun: true, CARVING: settings.CARVING, SHADOW_PASS: 1 });
+          this.shadows.cast(() => (useRender(0, shadowPass), shadowPass), rect);
+          this.passHook?.('combine');
+          this.shadows.combine(rect);
+        }
       }
       gl.disable(gl.SCISSOR_TEST);
       if (temporal) this.accumulator.finish(camera, shift, focal, this.motion(n), this.settled, rect);

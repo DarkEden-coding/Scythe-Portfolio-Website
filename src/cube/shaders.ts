@@ -18,6 +18,27 @@
 
 import { TRAIL_SAMPLES } from './thresholdTrail.ts';
 
+// Reused shadows: where a pixel's shadow ray starts and the normal there, in 8 bytes: each
+// coordinate in cells (-2..1022) to 1/1024 of a cell in 20 bits, and in the top 3 bits which of the
+// six normals, 1..6 (0: no shadow ray).
+const SUN_FROM = /* glsl */ `
+uvec2 packSunFrom(vec3 p, vec3 normal) {
+  uvec3 q = uvec3(clamp((p + 2.0) * 1024.0 + 0.5, 0.0, 1048575.0));
+  uint axis = normal.x != 0.0 ? 0u : normal.y != 0.0 ? 1u : 2u;
+  uint code = 1u + axis * 2u + (dot(normal, vec3(1.0)) > 0.0 ? 1u : 0u);
+  return uvec2(q.x | (q.y << 20), (q.y >> 12) | (q.z << 8) | (code << 29));
+}
+uint sunFromCode(uvec2 v) { return v.y >> 29; }
+vec3 sunFromPoint(uvec2 v) {
+  uvec3 q = uvec3(v.x & 0xfffffu, (v.x >> 20) | ((v.y & 0xffu) << 12), (v.y >> 8) & 0xfffffu);
+  return vec3(q) / 1024.0 - 2.0;
+}
+vec3 codeNormal(uint code) {
+  vec3 n = vec3(0.0);
+  n[int((code - 1u) / 2u)] = (code & 1u) == 0u ? 1.0 : -1.0;
+  return n;
+}`;
+
 // Full-screen triangle, no vertex buffer needed.
 export const FULLSCREEN_VS = /* glsl */ `#version 300 es
 void main() {
@@ -303,7 +324,15 @@ uniform sampler2D uProbeDepth;
 
 layout(location = 0) out vec4 fragColor;
 layout(location = 1) out float fragDepth; // distance to the first surface drawn, -1 for none; for reprojection
+#ifdef SHADOW_REUSE
+// With shadows reused (see SHADOW_COMBINE_FS), the colour above leaves the direct sun out; these hold
+// what it would add unshadowed, and where the pixel's shadow ray would start, for the shadow pass.
+layout(location = 2) out vec4 fragSunlit;   // halved, to fit in 0..1
+layout(location = 3) out uvec2 fragSunFrom; // packed (see SUN_FROM)
+${SUN_FROM}
+#else
 layout(location = 2) out uint fragFaces;  // the probe's faces id (see faces)
+#endif
 
 #if defined(STEP_COUNTS) || defined(DEBUG_VIEW)
 // Debugging only: how much traversal work a pixel's rays do. bench/steps.mjs defines STEP_COUNTS
@@ -790,6 +819,7 @@ vec3 shadeSunlit;
 vec3 traceSunlit;
 bool sunPending = false;
 vec3 sunFrom;
+vec3 sunNormal; // the normal there, for SHADOW_REUSE
 
 // Which voxel faces a ray shaded, hashed in order. Neighbouring pixels with the same id show the
 // same faces, so between them the image is smooth; a different id means an edge between them.
@@ -828,7 +858,7 @@ vec3 shade(Ray r, float dist) {
   if (uSun) {
     // Direct sun with cast shadows (see shadeSunlit), plus sky light that ambient occlusion darkens.
     float facing = max(dot(r.normal, uSunDir), 0.0);
-    if (facing > 0.0 && !sunPending) { sunPending = true; sunFrom = hit + r.normal * 1e-3; }
+    if (facing > 0.0 && !sunPending) { sunPending = true; sunFrom = hit + r.normal * 1e-3; sunNormal = r.normal; }
     shadeSunlit = surface * SUN_COLOR * facing;
     vec3 sky = SKY_COLOR * (0.55 + 0.45 * r.normal.y) * mix(0.25, 1.0, ao);
     col = surface * sky;
@@ -851,6 +881,12 @@ vec3 shade(Ray r, float dist) {
   return col + uAccent * 0.3 * heat + vec3(1.0, 0.85, 0.7) * 0.2 * pow(heat, 6.0);
 }
 
+// Aims shadow rays at a point on the sun disk, sunOffset in the unit disk.
+void aimAtSun(vec2 sunOffset) {
+  vec3 across = normalize(cross(uSunDir, abs(uSunDir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+  sunDir = normalize(uSunDir + SUN_RADIUS * (across * sunOffset.x + cross(uSunDir, across) * sunOffset.y));
+}
+
 // One camera ray through a point on the screen, in pixels; premultiplied colour and coverage.
 vec4 trace(vec2 pixel, vec2 sunOffset) {
   faces = 2166136261u;
@@ -858,8 +894,7 @@ vec4 trace(vec2 pixel, vec2 sunOffset) {
   vec2 uv = (pixel * 2.0 - uResolution) / uResolution.y - uShift;
   vec3 rd = normalize(uForward * uFocal + uRight * uv.x + uUp * uv.y);
   vec3 ro = uEye;
-  vec3 across = normalize(cross(uSunDir, abs(uSunDir.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
-  sunDir = normalize(uSunDir + SUN_RADIUS * (across * sunOffset.x + cross(uSunDir, across) * sunOffset.y));
+  aimAtSun(sunOffset);
 
   // Ray against the [-1, 1]³ box.
   vec3 inv = 1.0 / rd;
@@ -1046,6 +1081,34 @@ vec4 debugColor(int rays, vec4 picture) {
 // count there. (Doing the edge test in the refine pass itself saves little: the GPU runs pixels in
 // groups, and a group with one edge pixel in it waits for that pixel's rays.) Where voxels are
 // about a pixel wide, nearly every pixel is an edge, and the single pass (mode 0) is cheaper.
+#ifdef SHADOW_PASS
+// Reused shadows, the shadow pass (see SHADOW_COMBINE_FS): one texel per 2×2 block of pixels, which
+// casts the shadow ray of one of them, a different one each frame (the next in line if that one
+// has none). Every texel casts, so the GPU's pixel groups run full instead of a quarter of each
+// waiting on the others. Out: xyz where the ray started, w (1 + its normal's code) × 2 + the light
+// that got through, 0..1; 0 where no pixel of the block has a shadow ray.
+uniform highp usampler2D uSunFrom; // the ray-cast's fragSunFrom
+uniform ivec4 uDrawn; // the pixels the ray-cast drew, from xy to zw (exclusive); the rest hold old frames'
+const ivec2 BLOCK_ORDER[4] = ivec2[4](ivec2(0, 0), ivec2(1, 1), ivec2(1, 0), ivec2(0, 1));
+${SUN_FROM}
+
+void main() {
+  for (int i = 0; i < 4; i++) {
+    ivec2 px = ivec2(gl_FragCoord.xy) * 2 + BLOCK_ORDER[(uSunFrame + i) % 4];
+    if (any(lessThan(px, uDrawn.xy)) || any(greaterThanEqual(px, uDrawn.zw))) continue;
+    uvec2 packed = texelFetch(uSunFrom, px, 0).rg;
+    uint code = sunFromCode(packed);
+    if (code == 0u) continue;
+    vec3 from = sunFromPoint(packed);
+    // A pixel casts every fourth frame, so it steps through the sun disk's points one per turn.
+    vec2 p = vec2(px);
+    aimAtSun(diskPoint(int(gradientNoise(p) * 16.0) + uSunFrame / 4, gradientNoise(p + vec2(47.0, 17.0)) * 6.2831853));
+    fragColor = vec4(from, float(code) * 2.0 + sunlight(from));
+    return;
+  }
+  fragColor = vec4(0.0);
+}
+#else
 void main() {
   vec4 sum = vec4(0.0);
   int rays = uMode == 1 ? 1 : uSamples;
@@ -1073,16 +1136,25 @@ void main() {
     sum += trace(gl_FragCoord.xy + uJitter + offset, sunPoint);
     if (i == 0 && uMode != 2) {
       fragDepth = firstDepth;
+#ifndef SHADOW_REUSE
       fragFaces = faces;
+#endif
     }
     sunlit += traceSunlit;
+#ifndef SHADOW_REUSE
     if (rays < 4 || i % 2 == 1) {
       if (sunPending) sum.rgb += sunlit * sunlight(sunFrom);
       sunPending = false;
       sunlit = vec3(0.0);
     }
+#endif
   }
   fragColor = sum / float(counted);
+#ifdef SHADOW_REUSE
+  // All of the pixel's rays take the shadow of the first sunlit surface any of them shaded.
+  fragSunlit = vec4(0.5 * sunlit / float(counted), 0.0);
+  fragSunFrom = sunPending ? packSunFrom(sunFrom, sunNormal) : uvec2(0u);
+#endif
 #ifdef STEP_COUNTS
   // Drawn straight over the cleared canvas, so the counts read back as written, 1020 at most.
   fragColor = min(vec4(stepCount) / float(rays), 1020.0) / 1020.0;
@@ -1090,6 +1162,54 @@ void main() {
 #ifdef DEBUG_VIEW
   fragColor = debugColor(rays, fragColor);
 #endif
+}
+#endif`;
+
+// Reused shadows (CubeView.shadowReuse): rather than each pixel casting its own shadow rays, the
+// shadow pass (RENDER_FS with SHADOW_PASS) casts one per 2×2 block of pixels, and this pass gives
+// each pixel the light through the shadow rays of the 3×3 blocks around it, weighted by how far
+// away each block is and kept to the rays that started on the pixel's own plane (same normal, about
+// the same distance along it), so shadows don't leak across voxel edges or from one surface onto
+// another. Which pixel of a block casts turns each frame, and the temporal AA averages the rest.
+// Adds the shadowed sun to the ray-cast's colour, blending.
+export const SHADOW_COMBINE_FS = /* glsl */ `#version 300 es
+precision highp float;
+precision highp usampler2D;
+uniform sampler2D uSunlit;   // half what the direct sun adds where nothing shades it
+uniform usampler2D uSunFrom; // where the pixel's shadow ray would start (see RENDER_FS fragSunFrom)
+uniform sampler2D uShadow;   // the shadow pass
+uniform ivec4 uBlocks;       // the blocks it drew, from xy to zw (exclusive); the rest hold old frames'
+out vec4 fragColor;
+${SUN_FROM}
+
+void main() {
+  ivec2 px = ivec2(gl_FragCoord.xy);
+  uvec2 packed = texelFetch(uSunFrom, px, 0).rg;
+  float code = float(sunFromCode(packed));
+  if (code == 0.0) discard;
+  vec3 from = sunFromPoint(packed);
+  vec3 normal = codeNormal(uint(code));
+  ivec2 block = px / 2;
+  vec2 light = vec2(0.0), near = vec2(0.0); // weighted sum and weights: on the pixel's plane, and all
+  for (int dy = -1; dy <= 1; dy++)
+    for (int dx = -1; dx <= 1; dx++) {
+      ivec2 b = block + ivec2(dx, dy);
+      if (any(lessThan(b, uBlocks.xy)) || any(greaterThanEqual(b, uBlocks.zw))) continue;
+      vec4 s = texelFetch(uShadow, b, 0);
+      if (s.w == 0.0) continue;
+      float caster = floor(s.w * 0.5);
+      float through = s.w - 2.0 * caster;
+      vec2 d = vec2(b * 2) + 1.0 - (vec2(px) + 0.5);
+      float w = exp(-0.25 * dot(d, d));
+      near += vec2(w * through, w);
+      if (caster == code) {
+        float off = abs(dot(normal, s.xyz - from)); // from the pixel's plane, in cells
+        w *= max(0.0, 1.0 - 4.0 * off);
+        light += vec2(w * through, w);
+      }
+    }
+  float through = light.y > 1e-3 ? light.x / light.y : near.y > 0.0 ? near.x / near.y : 1.0;
+  fragColor = vec4(2.0 * texelFetch(uSunlit, px, 0).rgb * through, 0.0);
 }`;
 
 // Accumulating over frames: each frame casts its rays at different points in the pixel (and on the

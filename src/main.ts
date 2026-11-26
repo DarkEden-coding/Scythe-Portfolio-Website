@@ -73,6 +73,8 @@ const recenterBtn = $<HTMLButtonElement>('#sim-recenter');
 type DragMode = 'rotate' | 'move';
 
 const view = CubeView.create(canvas, viewOptions(colorBy, palette, lighting === 'sun'));
+// ?shadows=reuse tries shadow rays at a quarter of the pixels (see shadowReuse.ts), to compare by eye.
+if (view && query.get('shadows') === 'reuse') view.shadowReuse = true;
 
 // Rendering on the CPU, Ultra runs at a few frames a second; start where it can keep up.
 if (view && !userPickedQuality && isSoftwareRenderer(view.gl)) quality = 'low';

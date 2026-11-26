@@ -77,6 +77,11 @@ are five presets, each at four grid sizes (64³, 112³, 160³, 320³).
   neighbourhood in 8 reads, for ambient occlusion and the neighbour count. Shadow rays only walk
   the box inset by the fade bands (nothing nearer the faces casts shade), and each pair of camera
   rays shares one, cast after both are traced.
+- **Reused shadows (experiment, `?shadows=reuse`):** while the camera moves with two rays (dragging
+  the finished cube), the ray-cast leaves the direct sun apart and casts no shadow rays; a pass at
+  half size casts one per 2×2 block of pixels, a different pixel of it each frame, and each pixel
+  takes the light from the 3×3 blocks around it whose rays started on its own plane
+  (`shadowReuse.ts`). A still picture casts its own as before, so it comes out the same.
 - **Specialised shaders:** the ray-cast compiles a variant per combination of lighting, colouring,
   glow, rays per pixel and bore (`#define`s, `variants.ts`), in the background where the browser
   allows, so each draw runs only the code it needs. The variants the site will want next (the
